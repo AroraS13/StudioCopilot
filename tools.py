@@ -1,0 +1,1694 @@
+"""Domain-specific tools for Studio Copilot.
+
+Each tool has two pieces:
+1. A Python function that performs the real work.
+2. A JSON schema in TOOLS that tells Gemini when and how to call it.
+"""
+
+import json
+import re
+import math
+import os
+import time
+import requests
+from pathlib import Path
+import librosa
+import numpy as np
+
+AUDIO_UPLOAD_DIR = Path(
+    os.getenv("AUDIO_UPLOAD_DIR", "/tmp/studio_copilot_audio")
+)
+
+AUDIO_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+# Pitch classes are represented as semitone offsets from C.
+NOTE_TO_PITCH_CLASS = {
+    "C": 0,
+    "B#": 0,
+    "C#": 1,
+    "DB": 1,
+    "D": 2,
+    "D#": 3,
+    "EB": 3,
+    "E": 4,
+    "FB": 4,
+    "E#": 5,
+    "F": 5,
+    "F#": 6,
+    "GB": 6,
+    "G": 7,
+    "G#": 8,
+    "AB": 8,
+    "A": 9,
+    "A#": 10,
+    "BB": 10,
+    "B": 11,
+    "CB": 11,
+}
+
+PITCH_CLASS_TO_NAME = {
+    0: "C",
+    1: "C#/Db",
+    2: "D",
+    3: "D#/Eb",
+    4: "E",
+    5: "F",
+    6: "F#/Gb",
+    7: "G",
+    8: "G#/Ab",
+    9: "A",
+    10: "A#/Bb",
+    11: "B",
+}
+KEY_NAMES = [
+    "C",
+    "C#/Db",
+    "D",
+    "D#/Eb",
+    "E",
+    "F",
+    "F#/Gb",
+    "G",
+    "G#/Ab",
+    "A",
+    "A#/Bb",
+    "B",
+]
+
+# Krumhansl-Schmuckler major/minor pitch-class profiles.
+MAJOR_KEY_PROFILE = np.array([
+    6.35, 2.23, 3.48, 2.33, 4.38, 4.09,
+    2.52, 5.19, 2.39, 3.66, 2.29, 2.88,
+])
+
+MINOR_KEY_PROFILE = np.array([
+    6.33, 2.68, 3.52, 5.38, 2.60, 3.53,
+    2.54, 4.75, 3.98, 2.69, 3.34, 3.17,
+])
+
+
+def _parse_key(key: str) -> dict:
+    """Parse a practical key label such as 'Dm', 'D minor', or 'F# major'."""
+    if not isinstance(key, str) or not key.strip():
+        raise ValueError("Key must be a non-empty string, e.g. 'D minor' or 'F# major'.")
+
+    cleaned = key.strip().replace("♯", "#").replace("♭", "b")
+    compact = re.sub(r"\s+", "", cleaned)
+
+    match = re.fullmatch(r"([A-Ga-g])([#b]?)(major|minor|maj|min|m)?", compact, flags=re.IGNORECASE)
+    if not match:
+        raise ValueError(
+            f"Could not understand key '{key}'. Use a format like 'D minor', 'Dm', 'F# major', or 'Gb'."
+        )
+
+    note, accidental, quality = match.groups()
+    note_name = (note.upper() + accidental).upper()
+    if note_name not in NOTE_TO_PITCH_CLASS:
+        raise ValueError(f"Unsupported note name in key '{key}'.")
+
+    quality_norm = (quality or "").lower()
+    if quality_norm in {"minor", "min", "m"}:
+        mode = "minor"
+    elif quality_norm in {"major", "maj", ""}:
+        mode = "major" if quality_norm else "unspecified"
+    else:
+        mode = "unspecified"
+
+    pitch_class = NOTE_TO_PITCH_CLASS[note_name]
+    return {
+        "input": key,
+        "root": PITCH_CLASS_TO_NAME[pitch_class],
+        "pitch_class": pitch_class,
+        "mode": mode,
+    }
+
+
+def _shortest_pitch_shift(source_pc: int, target_pc: int) -> tuple[int, int]:
+    """Return the smallest signed semitone shift and an octave-equivalent alternative."""
+    upward = (target_pc - source_pc) % 12
+
+    # Prefer the smallest absolute motion. For a tritone, prefer +6 rather than -6.
+    if upward <= 6:
+        recommended = upward
+    else:
+        recommended = upward - 12
+
+    if recommended > 0:
+        alternate = recommended - 12
+    elif recommended < 0:
+        alternate = recommended + 12
+    else:
+        alternate = 12
+
+    return recommended, alternate
+
+
+def transform_sample(
+    source_bpm: float,
+    target_bpm: float,
+    source_key: str | None = None,
+    target_key: str | None = None,
+    bars: int | None = None,
+    beats_per_bar: int = 4,
+) -> str:
+    """Calculate tempo and pitch transformations needed to adapt a sample to a new track.
+
+    The function returns deterministic production math. Gemini should use the result to
+    explain the workflow and offer creative production advice.
+    """
+    try:
+        source_bpm = float(source_bpm)
+        target_bpm = float(target_bpm)
+    except (TypeError, ValueError):
+        return json.dumps({"error": "source_bpm and target_bpm must both be numbers."})
+
+    if source_bpm <= 0 or target_bpm <= 0:
+        return json.dumps({"error": "BPM values must be greater than 0."})
+    if source_bpm > 400 or target_bpm > 400:
+        return json.dumps({"error": "BPM values above 400 are outside this tool's supported range."})
+
+    if bars is not None:
+        if isinstance(bars, bool) or not isinstance(bars, int) or bars <= 0:
+            return json.dumps({"error": "bars must be a positive whole number when provided."})
+
+    if isinstance(beats_per_bar, bool) or not isinstance(beats_per_bar, int) or beats_per_bar <= 0:
+        return json.dumps({"error": "beats_per_bar must be a positive whole number."})
+
+    playback_speed_ratio = target_bpm / source_bpm
+    duration_ratio = source_bpm / target_bpm
+    tempo_change_pct = (playback_speed_ratio - 1.0) * 100.0
+
+    result = {
+        "source_bpm": round(source_bpm, 3),
+        "target_bpm": round(target_bpm, 3),
+        "tempo_change_percent": round(tempo_change_pct, 2),
+        "playback_speed_ratio": round(playback_speed_ratio, 5),
+        "target_duration_ratio": round(duration_ratio, 5),
+        "time_stretch_instruction": (
+            f"Make the sample {duration_ratio * 100:.2f}% of its original duration "
+            f"to move from {source_bpm:g} BPM to {target_bpm:g} BPM while preserving bar count."
+        ),
+    }
+
+    if bars is not None:
+        source_duration = bars * beats_per_bar * 60.0 / source_bpm
+        target_duration = bars * beats_per_bar * 60.0 / target_bpm
+        result["loop"] = {
+            "bars": bars,
+            "beats_per_bar": beats_per_bar,
+            "source_duration_seconds": round(source_duration, 3),
+            "target_duration_seconds": round(target_duration, 3),
+        }
+
+    if source_key is not None or target_key is not None:
+        if not source_key or not target_key:
+            return json.dumps({
+                "error": "To calculate pitch shifting, provide both source_key and target_key."
+            })
+
+        try:
+            source = _parse_key(source_key)
+            target = _parse_key(target_key)
+        except ValueError as e:
+            return json.dumps({"error": str(e)})
+
+        recommended, alternate = _shortest_pitch_shift(source["pitch_class"], target["pitch_class"])
+
+        mode_note = None
+        if (
+            source["mode"] != "unspecified"
+            and target["mode"] != "unspecified"
+            and source["mode"] != target["mode"]
+        ):
+            mode_note = (
+                f"The roots can be aligned by pitch shifting, but the source is {source['mode']} "
+                f"and the target is {target['mode']}. Pitch shifting alone will not change the "
+                "sample's major/minor harmonic quality."
+            )
+
+        result["pitch"] = {
+            "source_key": source_key,
+            "target_key": target_key,
+            "recommended_shift_semitones": recommended,
+            "octave_equivalent_alternative_semitones": alternate,
+            "direction": "up" if recommended > 0 else "down" if recommended < 0 else "none",
+            "mode_warning": mode_note,
+        }
+
+    return json.dumps(result)
+def _format_timestamp(seconds: float) -> str:
+    """Format seconds as M:SS."""
+    seconds = max(0, round(seconds))
+    minutes, secs = divmod(seconds, 60)
+    return f"{minutes}:{secs:02d}"
+
+
+def _section_weight(section_name: str) -> float:
+    """
+    Relative amount of arrangement space usually given to common song sections.
+
+    These are not rigid musical rules. They are only used to distribute the
+    requested total duration across sections while keeping everything aligned
+    to 4-bar blocks.
+    """
+    name = section_name.lower().strip().replace("_", " ").replace("-", " ")
+
+    if "intro" in name:
+        return 0.75
+    if "outro" in name:
+        return 0.75
+    if "pre chorus" in name or "prechorus" in name:
+        return 0.75
+    if "build" in name:
+        return 0.75
+    if "chorus" in name:
+        return 1.25
+    if "drop" in name:
+        return 1.50
+    if "verse" in name:
+        return 1.25
+    if "breakdown" in name:
+        return 1.00
+    if "bridge" in name:
+        return 1.00
+    if "instrumental" in name:
+        return 1.00
+
+    return 1.00
+
+
+def build_arrangement(
+    bpm: float,
+    target_duration_seconds: float,
+    sections: list[str],
+    time_signature: str = "4/4",
+) -> str:
+    """
+    Build a bar-accurate song arrangement from an ordered section list.
+
+    The resulting arrangement is aligned to four-bar blocks so that section
+    boundaries remain musically practical.
+    """
+    try:
+        bpm = float(bpm)
+        target_duration_seconds = float(target_duration_seconds)
+
+        if bpm <= 0:
+            return json.dumps({
+                "error": "BPM must be greater than zero.",
+                "action": "Provide a positive BPM such as 120 or 128."
+            })
+
+        if target_duration_seconds <= 0:
+            return json.dumps({
+                "error": "Target duration must be greater than zero.",
+                "action": "Provide the desired track length in seconds."
+            })
+
+        if not sections or not isinstance(sections, list):
+            return json.dumps({
+                "error": "At least one song section is required.",
+                "action": (
+                    "Provide an ordered section list such as "
+                    "['intro', 'verse', 'chorus', 'verse', 'chorus', 'outro']."
+                )
+            })
+
+        sections = [
+            str(section).strip()
+            for section in sections
+            if str(section).strip()
+        ]
+
+        if not sections:
+            return json.dumps({
+                "error": "No valid section names were provided.",
+                "action": "Provide at least one named song section."
+            })
+
+        # Keep the first version intentionally unambiguous.
+        try:
+            numerator, denominator = [
+                int(x) for x in time_signature.split("/")
+            ]
+        except Exception:
+            return json.dumps({
+                "error": f"Invalid time signature: {time_signature}",
+                "action": "Use a value such as '4/4' or '3/4'."
+            })
+
+        if numerator <= 0 or denominator != 4:
+            return json.dumps({
+                "error": (
+                    f"Time signature {time_signature} is not currently supported."
+                ),
+                "action": (
+                    "This version supports quarter-note based meters such as "
+                    "4/4 or 3/4. Use 4/4 unless your track requires another meter."
+                )
+            })
+
+        seconds_per_beat = 60.0 / bpm
+        seconds_per_bar = numerator * seconds_per_beat
+
+        raw_target_bars = target_duration_seconds / seconds_per_bar
+
+        # Song sections are arranged in four-bar blocks.
+        target_four_bar_units = max(
+            len(sections),
+            round(raw_target_bars / 4)
+        )
+
+        total_bars = target_four_bar_units * 4
+
+        # Every requested section gets at least four bars.
+        units_per_section = [1] * len(sections)
+        remaining_units = target_four_bar_units - len(sections)
+
+        if remaining_units > 0:
+            weights = [_section_weight(section) for section in sections]
+            weight_sum = sum(weights)
+
+            exact_extra_units = [
+                remaining_units * weight / weight_sum
+                for weight in weights
+            ]
+
+            floor_units = [
+                math.floor(value)
+                for value in exact_extra_units
+            ]
+
+            for i, extra in enumerate(floor_units):
+                units_per_section[i] += extra
+
+            leftover = remaining_units - sum(floor_units)
+
+            # Largest-remainder allocation keeps the total exact.
+            fractional_order = sorted(
+                range(len(sections)),
+                key=lambda i: exact_extra_units[i] - floor_units[i],
+                reverse=True,
+            )
+
+            for i in fractional_order[:leftover]:
+                units_per_section[i] += 1
+
+        arrangement = []
+        current_bar = 1
+
+        for section_name, units in zip(sections, units_per_section):
+            bar_count = units * 4
+
+            start_bar = current_bar
+            end_bar = current_bar + bar_count - 1
+
+            start_seconds = (start_bar - 1) * seconds_per_bar
+            end_seconds = end_bar * seconds_per_bar
+
+            arrangement.append({
+                "section": section_name,
+                "start_bar": start_bar,
+                "end_bar": end_bar,
+                "bars": bar_count,
+                "start_time": _format_timestamp(start_seconds),
+                "end_time": _format_timestamp(end_seconds),
+                "start_seconds": round(start_seconds, 2),
+                "end_seconds": round(end_seconds, 2),
+            })
+
+            current_bar = end_bar + 1
+
+        actual_duration_seconds = total_bars * seconds_per_bar
+        duration_difference = (
+            actual_duration_seconds - target_duration_seconds
+        )
+
+        result = {
+            "bpm": bpm,
+            "time_signature": time_signature,
+            "seconds_per_bar": round(seconds_per_bar, 3),
+
+            "requested_duration_seconds": round(
+                target_duration_seconds, 2
+            ),
+            "requested_duration": _format_timestamp(
+                target_duration_seconds
+            ),
+
+            "actual_duration_seconds": round(
+                actual_duration_seconds, 2
+            ),
+            "actual_duration": _format_timestamp(
+                actual_duration_seconds
+            ),
+
+            "duration_difference_seconds": round(
+                duration_difference, 2
+            ),
+
+            "total_bars": total_bars,
+            "arrangement": arrangement,
+
+            "note": (
+                "Section boundaries are aligned to four-bar blocks. "
+                "The actual duration may differ slightly from the requested "
+                "duration so that the arrangement remains musically practical."
+            ),
+        }
+
+        return json.dumps(result)
+
+    except Exception as exc:
+        return json.dumps({
+            "error": "Could not build the arrangement.",
+            "details": str(exc),
+            "action": (
+                "Check that BPM and duration are numeric and that sections "
+                "is an ordered list of song section names."
+            )
+        })
+
+MUSICBRAINZ_API_URL = "https://musicbrainz.org/ws/2/recording/"
+_LAST_MUSICBRAINZ_REQUEST = 0.0
+
+
+def _musicbrainz_artist_name(artist_credit: list) -> str:
+    """Turn MusicBrainz artist-credit data into a readable artist string."""
+    if not artist_credit:
+        return "Unknown artist"
+
+    parts = []
+
+    for credit in artist_credit:
+        name = (
+            credit.get("name")
+            or credit.get("artist", {}).get("name")
+            or "Unknown artist"
+        )
+
+        parts.append(name)
+
+        join_phrase = credit.get("joinphrase")
+        if join_phrase:
+            parts.append(join_phrase)
+
+    return "".join(parts)
+
+
+def _escape_musicbrainz_query(value: str) -> str:
+    """Escape quotes/backslashes inside a MusicBrainz Lucene query."""
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+    
+def _normalize_music_text(value: str | None) -> str:
+    """Normalize track/artist text for comparison."""
+    if not value:
+        return ""
+
+    value = value.lower().strip()
+    value = re.sub(r"[^a-z0-9]+", " ", value)
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _recording_release_year(recording: dict) -> int:
+    """
+    Return the earliest known release year for a MusicBrainz recording.
+    Unknown dates sort last.
+    """
+    dates = []
+
+    first_release_date = recording.get("first-release-date")
+    if first_release_date:
+        dates.append(first_release_date)
+
+    for release in recording.get("releases") or []:
+        release_date = release.get("date")
+        if release_date:
+            dates.append(release_date)
+
+    years = []
+
+    for date in dates:
+        match = re.match(r"(\d{4})", str(date))
+        if match:
+            years.append(int(match.group(1)))
+
+    return min(years) if years else 9999
+
+
+def _rank_reference_recording(
+    recording: dict,
+    requested_track: str,
+    requested_artist: str | None,
+) -> tuple:
+    """
+    Rank MusicBrainz search results so the likely canonical/original recording
+    is preferred over later compilations, edits, remixes, or alternate versions.
+    """
+    result_title = recording.get("title") or ""
+    result_artist = _musicbrainz_artist_name(
+        recording.get("artist-credit") or []
+    )
+
+    normalized_requested_title = _normalize_music_text(requested_track)
+    normalized_result_title = _normalize_music_text(result_title)
+
+    exact_title = (
+        normalized_result_title == normalized_requested_title
+    )
+
+    if requested_artist:
+        exact_artist = (
+            _normalize_music_text(result_artist)
+            == _normalize_music_text(requested_artist)
+        )
+    else:
+        exact_artist = True
+
+    alternate_version_terms = (
+        "remix",
+        "edit",
+        "radio edit",
+        "live",
+        "demo",
+        "instrumental",
+        "karaoke",
+        "flip",
+        "remaster",
+        "acoustic",
+    )
+
+    requested_contains_version_term = any(
+        term in normalized_requested_title
+        for term in alternate_version_terms
+    )
+
+    result_contains_version_term = any(
+        term in normalized_result_title
+        for term in alternate_version_terms
+    )
+
+    unwanted_version = (
+        result_contains_version_term
+        and not requested_contains_version_term
+    )
+
+    release_year = _recording_release_year(recording)
+
+    has_duration = recording.get("length") is not None
+
+    try:
+        musicbrainz_score = int(recording.get("score") or 0)
+    except (TypeError, ValueError):
+        musicbrainz_score = 0
+
+    # Lower tuple values are better.
+    return (
+        0 if exact_title else 1,
+        0 if exact_artist else 1,
+        0 if not unwanted_version else 1,
+        release_year,
+        0 if has_duration else 1,
+        -musicbrainz_score,
+    )
+
+
+def lookup_reference_track(
+    track_name: str,
+    artist: str | None = None,
+) -> str:
+    """
+    Look up real recording metadata from MusicBrainz.
+
+    Use this when the user names an existing song as a production reference
+    and factual metadata such as track duration is needed.
+    """
+    global _LAST_MUSICBRAINZ_REQUEST
+
+    if not isinstance(track_name, str) or not track_name.strip():
+        return json.dumps({
+            "error": "track_name must be a non-empty song title.",
+            "action": "Provide the title of the reference track."
+        })
+
+    track_name = track_name.strip()
+
+    if artist is not None:
+        if not isinstance(artist, str) or not artist.strip():
+            artist = None
+        else:
+            artist = artist.strip()
+
+    escaped_track = _escape_musicbrainz_query(track_name)
+
+    if artist:
+        escaped_artist = _escape_musicbrainz_query(artist)
+        query = (
+            f'recording:"{escaped_track}" '
+            f'AND artist:"{escaped_artist}"'
+        )
+    else:
+        query = f'recording:"{escaped_track}"'
+
+    # MusicBrainz asks ordinary clients to stay around one request per second.
+    elapsed = time.monotonic() - _LAST_MUSICBRAINZ_REQUEST
+    if elapsed < 1.05:
+        time.sleep(1.05 - elapsed)
+
+    user_agent = os.getenv(
+        "MUSICBRAINZ_USER_AGENT",
+        "StudioCopilot/0.1 (Columbia University student project)"
+    )
+
+    try:
+        response = requests.get(
+            MUSICBRAINZ_API_URL,
+            params={
+                "query": query,
+                "fmt": "json",
+                "limit": 5,
+            },
+            headers={
+                "User-Agent": user_agent
+            },
+            timeout=10,
+        )
+
+        _LAST_MUSICBRAINZ_REQUEST = time.monotonic()
+
+        if response.status_code == 503:
+            return json.dumps({
+                "error": "MusicBrainz is temporarily rate-limiting or unavailable.",
+                "action": "Try the reference-track lookup again shortly."
+            })
+
+        response.raise_for_status()
+
+    except requests.Timeout:
+        return json.dumps({
+            "error": "MusicBrainz did not respond before the request timed out.",
+            "action": "Try the lookup again or use a different reference track."
+        })
+
+    except requests.RequestException as exc:
+        return json.dumps({
+            "error": "Could not retrieve reference-track data from MusicBrainz.",
+            "details": str(exc),
+            "action": (
+                "Check the internet connection or try the lookup again."
+            )
+        })
+
+    try:
+        data = response.json()
+    except ValueError:
+        return json.dumps({
+            "error": "MusicBrainz returned a response that could not be parsed.",
+            "action": "Try the lookup again."
+        })
+
+    recordings = data.get("recordings", [])
+
+    if not recordings:
+        return json.dumps({
+            "error": "No matching recordings were found.",
+            "query": {
+                "track_name": track_name,
+                "artist": artist,
+            },
+            "action": (
+                "Check the spelling of the title or provide the artist "
+                "to make the search more specific."
+            )
+        })
+
+    def summarize_recording(recording: dict) -> dict:
+        length_ms = recording.get("length")
+
+        if length_ms is not None:
+            duration_seconds = length_ms / 1000.0
+            duration_display = _format_timestamp(duration_seconds)
+        else:
+            duration_seconds = None
+            duration_display = None
+
+        releases = recording.get("releases") or []
+
+        # Prefer an official release when MusicBrainz provides one.
+        selected_release = next(
+            (
+                release
+                for release in releases
+                if release.get("status") == "Official"
+            ),
+            releases[0] if releases else None,
+        )
+
+        release_title = None
+        release_type = None
+        release_date = recording.get("first-release-date")
+
+        if selected_release:
+            release_title = selected_release.get("title")
+
+            release_group = selected_release.get("release-group") or {}
+            release_type = release_group.get("primary-type")
+
+            if not release_date:
+                release_date = selected_release.get("date")
+
+        artist_name = _musicbrainz_artist_name(
+            recording.get("artist-credit") or []
+        )
+
+        recording_id = recording.get("id")
+
+        return {
+            "title": recording.get("title"),
+            "artist": artist_name,
+            "duration_seconds": (
+                round(duration_seconds, 2)
+                if duration_seconds is not None
+                else None
+            ),
+            "duration": duration_display,
+            "first_release_date": release_date,
+            "release": release_title,
+            "release_type": release_type,
+            "musicbrainz_id": recording_id,
+            "match_score": recording.get("score"),
+            "musicbrainz_url": (
+                f"https://musicbrainz.org/recording/{recording_id}"
+                if recording_id
+                else None
+            ),
+        }
+
+    ranked_recordings = sorted(
+        recordings,
+        key=lambda recording: _rank_reference_recording(
+            recording,
+            track_name,
+            artist,
+        ),
+    )
+
+    matches = [
+        summarize_recording(recording)
+        for recording in ranked_recordings
+    ]
+
+    result = {
+        "query": {
+            "track_name": track_name,
+            "artist": artist,
+        },
+        "source": "MusicBrainz",
+        "selected_match": matches[0],
+        "alternative_matches": matches[1:3],
+        "note": (
+            "When multiple recordings match, Studio Copilot prefers an exact "
+            "title and artist match, avoids alternate versions when possible, "
+            "and favors earlier releases as the likely original recording."
+        ),
+    }
+
+    return json.dumps(result)
+
+def _template_correlation(a: np.ndarray, b: np.ndarray) -> float:
+    """Correlation between two pitch-class profiles without NaN failures."""
+    a = np.asarray(a, dtype=float)
+    b = np.asarray(b, dtype=float)
+
+    a = a - np.mean(a)
+    b = b - np.mean(b)
+
+    denominator = np.linalg.norm(a) * np.linalg.norm(b)
+
+    if denominator <= 1e-12:
+        return 0.0
+
+    return float(np.dot(a, b) / denominator)
+
+
+def _estimate_key(chroma: np.ndarray) -> dict:
+    """
+    Estimate the most likely major/minor key from an averaged chromagram.
+
+    This is an estimate, not ground truth.
+    """
+    pitch_profile = np.mean(chroma, axis=1)
+
+    if np.max(pitch_profile) <= 1e-10:
+        return {
+            "estimated_key": None,
+            "template_correlation": None,
+        }
+
+    candidates = []
+
+    for tonic in range(12):
+        major_template = np.roll(MAJOR_KEY_PROFILE, tonic)
+        minor_template = np.roll(MINOR_KEY_PROFILE, tonic)
+
+        candidates.append({
+            "key": f"{KEY_NAMES[tonic]} major",
+            "score": _template_correlation(
+                pitch_profile,
+                major_template,
+            ),
+        })
+
+        candidates.append({
+            "key": f"{KEY_NAMES[tonic]} minor",
+            "score": _template_correlation(
+                pitch_profile,
+                minor_template,
+            ),
+        })
+
+    candidates.sort(
+        key=lambda item: item["score"],
+        reverse=True,
+    )
+
+    best = candidates[0]
+    second = candidates[1]
+
+    return {
+        "estimated_key": best["key"],
+        "template_correlation": round(best["score"], 3),
+        "score_margin_over_second_choice": round(
+            best["score"] - second["score"],
+            3,
+        ),
+        "second_choice": second["key"],
+    }
+
+
+def _build_energy_profile(
+    rms_db: np.ndarray,
+    spectral_centroid: np.ndarray,
+    onset_times: np.ndarray,
+    duration: float,
+    sr: int,
+    hop_length: int,
+    time_offset: float,
+    segment_count: int = 8,
+) -> list[dict]:
+    """Summarize changes in energy/brightness/onset activity across a track."""
+    frame_count = min(
+        len(rms_db),
+        len(spectral_centroid),
+    )
+
+    if frame_count == 0:
+        return []
+
+    frame_times = librosa.frames_to_time(
+        np.arange(frame_count),
+        sr=sr,
+        hop_length=hop_length,
+    )
+
+    overall_rms = float(np.median(rms_db[:frame_count]))
+    profile = []
+
+    for index in range(segment_count):
+        start = duration * index / segment_count
+        end = duration * (index + 1) / segment_count
+
+        mask = (
+            (frame_times >= start)
+            & (frame_times < end)
+        )
+
+        if not np.any(mask):
+            continue
+
+        segment_rms = float(np.median(rms_db[:frame_count][mask]))
+        segment_centroid = float(
+            np.median(
+                spectral_centroid[:frame_count][mask]
+            )
+        )
+
+        onset_count = int(
+            np.sum(
+                (onset_times >= start)
+                & (onset_times < end)
+            )
+        )
+
+        segment_duration = max(end - start, 1e-6)
+
+        profile.append({
+            "segment": index + 1,
+            "start_seconds": round(
+                time_offset + start,
+                2,
+            ),
+            "end_seconds": round(
+                time_offset + end,
+                2,
+            ),
+            "median_rms_dbfs": round(
+                segment_rms,
+                2,
+            ),
+            "rms_relative_to_track_db": round(
+                segment_rms - overall_rms,
+                2,
+            ),
+            "median_spectral_centroid_hz": round(
+                segment_centroid,
+                1,
+            ),
+            "onset_density_per_second": round(
+                onset_count / segment_duration,
+                2,
+            ),
+        })
+
+    return profile
+
+
+def _candidate_structure_boundaries(
+    rms_db: np.ndarray,
+    spectral_centroid: np.ndarray,
+    onset_env: np.ndarray,
+    chroma: np.ndarray,
+    duration: float,
+    sr: int,
+    hop_length: int,
+    time_offset: float,
+) -> list[dict]:
+    """
+    Detect large feature changes as candidate structural boundaries.
+
+    These are intentionally labeled candidates rather than verse/chorus
+    predictions.
+    """
+    frame_count = min(
+        len(rms_db),
+        len(spectral_centroid),
+        len(onset_env),
+        chroma.shape[1],
+    )
+
+    if frame_count < 10 or duration < 20:
+        return []
+
+    frame_times = librosa.frames_to_time(
+        np.arange(frame_count),
+        sr=sr,
+        hop_length=hop_length,
+    )
+
+    block_seconds = 4.0
+    block_count = max(
+        2,
+        int(np.ceil(duration / block_seconds)),
+    )
+
+    features = []
+    boundary_times = []
+
+    for block_index in range(block_count):
+        start = block_index * block_seconds
+        end = min(
+            duration,
+            (block_index + 1) * block_seconds,
+        )
+
+        mask = (
+            (frame_times >= start)
+            & (frame_times < end)
+        )
+
+        if not np.any(mask):
+            continue
+
+        chroma_mean = np.mean(
+            chroma[:, :frame_count][:, mask],
+            axis=1,
+        )
+
+        feature_vector = np.concatenate([
+            np.array([
+                np.median(
+                    rms_db[:frame_count][mask]
+                ),
+                np.log1p(
+                    np.median(
+                        spectral_centroid[:frame_count][mask]
+                    )
+                ),
+                np.mean(
+                    onset_env[:frame_count][mask]
+                ),
+            ]),
+            chroma_mean * 0.5,
+        ])
+
+        features.append(feature_vector)
+        boundary_times.append(end)
+
+    if len(features) < 3:
+        return []
+
+    features = np.asarray(features)
+
+    mean = np.mean(features, axis=0)
+    std = np.std(features, axis=0)
+    std[std < 1e-8] = 1.0
+
+    normalized = (features - mean) / std
+
+    change_scores = np.linalg.norm(
+        np.diff(normalized, axis=0),
+        axis=1,
+    )
+
+    if np.max(change_scores) <= 1e-8:
+        return []
+
+    normalized_scores = (
+        change_scores / np.max(change_scores)
+    )
+
+    ranked_indices = np.argsort(
+        normalized_scores
+    )[::-1]
+
+    selected = []
+
+    for index in ranked_indices:
+        boundary_time = boundary_times[index]
+
+        if boundary_time < 8:
+            continue
+
+        if boundary_time > duration - 8:
+            continue
+
+        if any(
+            abs(boundary_time - existing["local_time"])
+            < 10
+            for existing in selected
+        ):
+            continue
+
+        selected.append({
+            "local_time": boundary_time,
+            "score": float(
+                normalized_scores[index]
+            ),
+        })
+
+        if len(selected) >= 5:
+            break
+
+    selected.sort(
+        key=lambda item: item["local_time"]
+    )
+
+    return [
+        {
+            "time_seconds": round(
+                time_offset + item["local_time"],
+                2,
+            ),
+            "change_strength": round(
+                item["score"],
+                3,
+            ),
+        }
+        for item in selected
+    ]
+def analyze_audio_track(
+    audio_file_id: str,
+    start_seconds: float | None = None,
+    end_seconds: float | None = None,
+) -> str:
+    """
+    Analyze an uploaded musical audio file or a selected region.
+
+    Returns deterministic audio features that Gemini can interpret
+    in producer-oriented language.
+    """
+    try:
+        if not isinstance(audio_file_id, str):
+            return json.dumps({
+                "error": "audio_file_id must be a string."
+            })
+
+        # Prevent path traversal.
+        safe_file_id = Path(audio_file_id).name
+
+        if safe_file_id != audio_file_id:
+            return json.dumps({
+                "error": "Invalid audio file ID."
+            })
+
+        file_path = AUDIO_UPLOAD_DIR / safe_file_id
+
+        if not file_path.exists():
+            return json.dumps({
+                "error": "The uploaded audio file could not be found.",
+                "action": (
+                    "Upload or re-attach the audio file before "
+                    "requesting analysis."
+                ),
+            })
+
+        supported_extensions = {
+            ".wav",
+            ".mp3",
+            ".flac",
+            ".ogg",
+        }
+
+        if file_path.suffix.lower() not in supported_extensions:
+            return json.dumps({
+                "error": (
+                    f"Unsupported audio format: "
+                    f"{file_path.suffix}"
+                ),
+                "action": (
+                    "Use WAV, MP3, FLAC, or OGG."
+                ),
+            })
+
+        # Librosa's default 22.05 kHz mono representation is enough
+        # for these high-level MIR features and keeps analysis fast.
+        y_full, sr = librosa.load(
+            str(file_path),
+            sr=22050,
+            mono=True,
+        )
+
+        if len(y_full) == 0:
+            return json.dumps({
+                "error": "The uploaded audio file contains no audio samples."
+            })
+
+        full_duration = len(y_full) / sr
+
+        start = (
+            float(start_seconds)
+            if start_seconds is not None
+            else 0.0
+        )
+
+        end = (
+            float(end_seconds)
+            if end_seconds is not None
+            else full_duration
+        )
+
+        if start < 0:
+            return json.dumps({
+                "error": "start_seconds cannot be negative."
+            })
+
+        if end <= start:
+            return json.dumps({
+                "error": (
+                    "end_seconds must be greater than start_seconds."
+                )
+            })
+
+        if start >= full_duration:
+            return json.dumps({
+                "error": (
+                    "start_seconds is beyond the end of the audio file."
+                ),
+                "full_duration_seconds": round(
+                    full_duration,
+                    2,
+                ),
+            })
+
+        end = min(
+            end,
+            full_duration,
+        )
+
+        start_sample = int(start * sr)
+        end_sample = int(end * sr)
+
+        y = y_full[start_sample:end_sample]
+
+        duration = len(y) / sr
+
+        if duration < 1:
+            return json.dumps({
+                "error": (
+                    "The selected analysis region is too short."
+                ),
+                "action": (
+                    "Analyze at least one second of audio."
+                ),
+            })
+
+        peak_amplitude = float(
+            np.max(np.abs(y))
+        )
+
+        if peak_amplitude < 1e-7:
+            return json.dumps({
+                "error": (
+                    "The selected audio region is effectively silent."
+                )
+            })
+
+        hop_length = 1024
+
+        # ---------- Rhythm ----------
+
+        onset_env = librosa.onset.onset_strength(
+            y=y,
+            sr=sr,
+            hop_length=hop_length,
+        )
+
+        tempo, beat_frames = librosa.beat.beat_track(
+            onset_envelope=onset_env,
+            sr=sr,
+            hop_length=hop_length,
+        )
+
+        estimated_bpm = float(
+            np.asarray(tempo).reshape(-1)[0]
+        )
+
+        onset_frames = librosa.onset.onset_detect(
+            onset_envelope=onset_env,
+            sr=sr,
+            hop_length=hop_length,
+        )
+
+        onset_times = librosa.frames_to_time(
+            onset_frames,
+            sr=sr,
+            hop_length=hop_length,
+        )
+
+        # ---------- Dynamics ----------
+
+        rms = librosa.feature.rms(
+            y=y,
+            hop_length=hop_length,
+        )[0]
+
+        rms_db = 20.0 * np.log10(
+            np.maximum(
+                rms,
+                1e-10,
+            )
+        )
+
+        peak_dbfs = 20.0 * np.log10(
+            max(
+                peak_amplitude,
+                1e-10,
+            )
+        )
+
+        median_rms_dbfs = float(
+            np.median(rms_db)
+        )
+
+        rms_p10 = float(
+            np.percentile(rms_db, 10)
+        )
+
+        rms_p90 = float(
+            np.percentile(rms_db, 90)
+        )
+
+        # ---------- Spectral brightness ----------
+
+        spectral_centroid = (
+            librosa.feature.spectral_centroid(
+                y=y,
+                sr=sr,
+                hop_length=hop_length,
+            )[0]
+        )
+
+        # ---------- Harmony / key ----------
+
+        chroma = librosa.feature.chroma_cqt(
+            y=y,
+            sr=sr,
+            hop_length=hop_length,
+        )
+
+        key_estimate = _estimate_key(
+            chroma
+        )
+
+        # ---------- Profiles ----------
+
+        energy_profile = _build_energy_profile(
+            rms_db=rms_db,
+            spectral_centroid=spectral_centroid,
+            onset_times=onset_times,
+            duration=duration,
+            sr=sr,
+            hop_length=hop_length,
+            time_offset=start,
+        )
+
+        boundaries = _candidate_structure_boundaries(
+            rms_db=rms_db,
+            spectral_centroid=spectral_centroid,
+            onset_env=onset_env,
+            chroma=chroma,
+            duration=duration,
+            sr=sr,
+            hop_length=hop_length,
+            time_offset=start,
+        )
+
+        result = {
+            "audio_file_id": audio_file_id,
+
+            "full_track_duration_seconds": round(
+                full_duration,
+                2,
+            ),
+
+            "analysis_range": {
+                "start_seconds": round(
+                    start,
+                    2,
+                ),
+                "end_seconds": round(
+                    end,
+                    2,
+                ),
+                "duration_seconds": round(
+                    duration,
+                    2,
+                ),
+            },
+
+            "rhythm": {
+                "estimated_bpm": round(
+                    estimated_bpm,
+                    2,
+                ),
+                "detected_beat_count": int(
+                    len(beat_frames)
+                ),
+                "onset_count": int(
+                    len(onset_times)
+                ),
+                "onset_density_per_second": round(
+                    len(onset_times) / duration,
+                    3,
+                ),
+            },
+
+            "key": key_estimate,
+
+            "dynamics": {
+                "peak_dbfs": round(
+                    peak_dbfs,
+                    2,
+                ),
+                "median_rms_dbfs": round(
+                    median_rms_dbfs,
+                    2,
+                ),
+                "rms_p10_dbfs": round(
+                    rms_p10,
+                    2,
+                ),
+                "rms_p90_dbfs": round(
+                    rms_p90,
+                    2,
+                ),
+                "rms_variation_p90_minus_p10_db": round(
+                    rms_p90 - rms_p10,
+                    2,
+                ),
+                "crest_factor_proxy_db": round(
+                    peak_dbfs - median_rms_dbfs,
+                    2,
+                ),
+            },
+
+            "spectral": {
+                "median_spectral_centroid_hz": round(
+                    float(
+                        np.median(
+                            spectral_centroid
+                        )
+                    ),
+                    1,
+                )
+            },
+
+            "energy_profile": energy_profile,
+
+            "candidate_structure_boundaries": boundaries,
+
+            "interpretation_notes": [
+                (
+                    "Tempo and key are algorithmic estimates and may be "
+                    "incorrect for rhythmically ambiguous or harmonically "
+                    "complex material."
+                ),
+                (
+                    "RMS values are signal-level measurements in dBFS, "
+                    "not LUFS loudness measurements."
+                ),
+                (
+                    "Candidate structure boundaries indicate relatively "
+                    "large audio-feature changes. They do not automatically "
+                    "identify verses, choruses, or drops."
+                ),
+            ],
+        }
+
+        return json.dumps(result)
+
+    except Exception as exc:
+        return json.dumps({
+            "error": "Audio analysis failed.",
+            "details": (
+                f"{type(exc).__name__}: {str(exc)}"
+            ),
+            "action": (
+                "Confirm that the uploaded file is valid WAV, MP3, "
+                "FLAC, or OGG audio and try again."
+            ),
+        })
+
+
+# What Gemini sees. Descriptions should explain WHEN the tool is useful, not just what it computes.
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "transform_sample",
+            "description": (
+                "Calculate the exact tempo/time-stretch and optional pitch-shift changes needed "
+                "to fit an existing musical sample or loop into a target production. Use this "
+                "whenever the user wants to adapt a sample from one BPM to another, from one key "
+                "to another, or both. If the user gives a loop length in bars, include it so the "
+                "tool can return before/after durations. Do not estimate this math yourself when "
+                "the needed values are available."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source_bpm": {
+                        "type": "number",
+                        "description": "Original tempo of the sample in BPM, e.g. 92.",
+                    },
+                    "target_bpm": {
+                        "type": "number",
+                        "description": "Tempo of the destination track in BPM, e.g. 124.",
+                    },
+                    "source_key": {
+                        "type": "string",
+                        "description": "Optional original musical key, e.g. 'D minor', 'Dm', or 'F# major'.",
+                    },
+                    "target_key": {
+                        "type": "string",
+                        "description": "Optional destination musical key, e.g. 'F minor' or 'Ab major'.",
+                    },
+                    "bars": {
+                        "type": "integer",
+                        "description": "Optional length of the sample in bars, e.g. 8.",
+                    },
+                    "beats_per_bar": {
+                        "type": "integer",
+                        "description": "Beats per bar. Use 4 unless the user specifies another meter.",
+                        "default": 4,
+                    },
+                },
+                "required": ["source_bpm", "target_bpm"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "build_arrangement",
+            "description": (
+                "Create a mathematically bar-accurate song arrangement for a "
+                "specified BPM, target duration, and ordered set of song sections. "
+                "Use this when a musician or producer wants to create, restructure, "
+                "shorten, lengthen, or plan the timeline of a song. Section "
+                "boundaries are aligned to musically practical four-bar blocks. "
+                "The sections argument should contain the exact ordered sections "
+                "the user wants, including repeated sections such as two verses "
+                "or two choruses."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "bpm": {
+                        "type": "number",
+                        "description": "The tempo of the track in beats per minute."
+                    },
+                    "target_duration_seconds": {
+                        "type": "number",
+                        "description": (
+                            "Desired total song duration in seconds. "
+                            "For example, 3 minutes 30 seconds should be passed as 210."
+                        )
+                    },
+                    "sections": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": (
+                            "Ordered song sections. Repeated sections should appear "
+                            "multiple times. Example: "
+                            "['intro', 'verse 1', 'chorus 1', 'verse 2', "
+                            "'chorus 2', 'bridge', 'final chorus', 'outro']."
+                        )
+                    },
+                    "time_signature": {
+                        "type": "string",
+                        "description": (
+                            "Song time signature. Defaults to 4/4. "
+                            "Currently supports quarter-note based meters."
+                        ),
+                        "default": "4/4"
+                    }
+                },
+                "required": [
+                    "bpm",
+                    "target_duration_seconds",
+                    "sections"
+                ]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "lookup_reference_track",
+            "description": (
+                "Look up factual metadata about an existing released song using "
+                "MusicBrainz. Use this when a musician or producer names a real "
+                "reference track and its duration, release information, or identity "
+                "is needed for production planning. Always use this tool instead of "
+                "guessing the duration of a reference track. If both title and artist "
+                "are known, provide both to reduce ambiguity."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "track_name": {
+                        "type": "string",
+                        "description": (
+                            "Title of the released reference track, "
+                            "for example 'Nights'."
+                        ),
+                    },
+                    "artist": {
+                        "type": "string",
+                        "description": (
+                            "Optional artist name used to disambiguate the track, "
+                            "for example 'Frank Ocean'."
+                        ),
+                    },
+                },
+                "required": ["track_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_audio_track",
+            "description": (
+                "Analyze an audio file uploaded by the user and return objective "
+                "music/audio features including estimated tempo, estimated key, "
+                "signal dynamics, spectral brightness, onset activity, an energy "
+                "profile over time, and candidate structural-change points. "
+                "Use this whenever the user asks you to inspect, diagnose, compare, "
+                "or reason about the actual sound of their uploaded track, demo, "
+                "loop, bounce, or sample. "
+                "The estimates are analytical measurements, not ground truth. "
+                "If the user provides timestamps for a specific section, pass them "
+                "as start_seconds and end_seconds."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "audio_file_id": {
+                        "type": "string",
+                        "description": (
+                            "The exact uploaded audio file ID provided in the "
+                            "conversation attachment context."
+                        ),
+                    },
+                    "start_seconds": {
+                        "type": "number",
+                        "description": (
+                            "Optional start time in seconds if the user wants "
+                            "analysis of only part of the track."
+                        ),
+                    },
+                    "end_seconds": {
+                        "type": "number",
+                        "description": (
+                            "Optional end time in seconds if the user wants "
+                            "analysis of only part of the track."
+                        ),
+                    },
+                },
+                "required": [
+                    "audio_file_id"
+                ],
+            },
+        },
+    }
+]
+
+
+# What the harness actually runs.
+TOOL_MAP = {"transform_sample": transform_sample, "build_arrangement": build_arrangement,"lookup_reference_track": lookup_reference_track,"analyze_audio_track": analyze_audio_track,}
+
+
+def run_tool(name: str, args: dict) -> str:
+    """Run one tool call without allowing bad model arguments to crash the agent loop."""
+    if name not in TOOL_MAP:
+        return json.dumps({"error": f"Unknown tool '{name}'. Available: {list(TOOL_MAP)}"})
+    try:
+        return TOOL_MAP[name](**args)
+    except TypeError as e:
+        return json.dumps({"error": f"Bad arguments for {name}: {e}"})
+    except Exception as e:
+        return json.dumps({"error": f"{name} failed unexpectedly: {type(e).__name__}: {e}"})

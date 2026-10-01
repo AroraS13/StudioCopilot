@@ -1,0 +1,878 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Studio Copilot</title>
+
+        <link
+            rel="stylesheet"
+            href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"
+        />
+        
+        <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+        
+        <script
+            defer
+            src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"
+        ></script>
+        
+        <script
+            defer
+            src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+        ></script>
+        <style>
+            * {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+        
+            :root {
+                --bg: #f5f5f3;
+                --panel: #ffffff;
+                --text: #171717;
+                --muted: #737373;
+                --border: #e5e5e5;
+                --soft: #f7f7f7;
+                --tool-bg: #fffaf0;
+                --tool-border: #f1c36d;
+                --accent: #171717;
+            }
+        
+            body {
+                font-family:
+                    Inter,
+                    ui-sans-serif,
+                    -apple-system,
+                    BlinkMacSystemFont,
+                    "Segoe UI",
+                    sans-serif;
+        
+                min-height: 100vh;
+                background: var(--bg);
+                color: var(--text);
+                padding: 32px 20px;
+            }
+        
+            #container {
+                width: 100%;
+                max-width: 1000px;
+                min-height: calc(100vh - 64px);
+                margin: 0 auto;
+        
+                display: flex;
+                flex-direction: column;
+        
+                background: var(--panel);
+                border: 1px solid var(--border);
+                border-radius: 18px;
+                overflow: hidden;
+        
+                box-shadow:
+                    0 1px 2px rgba(0, 0, 0, 0.04),
+                    0 10px 35px rgba(0, 0, 0, 0.04);
+            }
+        
+            #app-header {
+                padding: 22px 28px;
+                border-bottom: 1px solid var(--border);
+        
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 20px;
+            }
+        
+            .brand {
+                display: flex;
+                align-items: center;
+                gap: 13px;
+            }
+        
+            .brand-mark {
+                width: 38px;
+                height: 38px;
+                border-radius: 10px;
+                background: #171717;
+                color: white;
+        
+                display: flex;
+                align-items: center;
+                justify-content: center;
+        
+                font-size: 18px;
+            }
+        
+            .brand h1 {
+                font-size: 1rem;
+                line-height: 1.2;
+                font-weight: 650;
+            }
+        
+            .brand p {
+                margin-top: 3px;
+                font-size: 0.78rem;
+                color: var(--muted);
+            }
+        
+            #messages {
+                flex: 1;
+                overflow-y: auto;
+        
+                padding: 32px 32px 48px;
+        
+                display: flex;
+                flex-direction: column;
+                gap: 22px;
+        
+                min-height: 520px;
+                max-height: calc(100vh - 245px);
+            }
+        
+            .empty-state {
+                margin: auto;
+                text-align: center;
+                max-width: 520px;
+                padding: 50px 20px;
+            }
+        
+            .empty-state h2 {
+                font-size: 1.45rem;
+                margin-bottom: 10px;
+            }
+        
+            .empty-state p {
+                color: var(--muted);
+                line-height: 1.6;
+                font-size: 0.93rem;
+            }
+        
+            .msg {
+                width: fit-content;
+                max-width: 82%;
+                line-height: 1.65;
+            }
+        
+            .msg.user {
+                align-self: flex-end;
+                background: #171717;
+                color: white;
+        
+                padding: 12px 16px;
+                border-radius: 16px 16px 4px 16px;
+            }
+        
+            .msg.assistant {
+                align-self: flex-start;
+                width: 100%;
+                max-width: 88%;
+            }
+        
+            .msg .role {
+                margin-bottom: 7px;
+        
+                font-size: 0.68rem;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                color: #9a9a9a;
+            }
+        
+            .msg.user .role {
+                color: #bdbdbd;
+            }
+        
+            .msg.loading .content {
+                color: var(--muted);
+            }
+        
+            /* ---------- Markdown ---------- */
+        
+            .content {
+                overflow-wrap: anywhere;
+            }
+        
+            .content > *:first-child {
+                margin-top: 0;
+            }
+        
+            .content > *:last-child {
+                margin-bottom: 0;
+            }
+        
+            .content p {
+                margin: 0 0 0.9rem;
+            }
+        
+            .content h1,
+            .content h2,
+            .content h3,
+            .content h4 {
+                line-height: 1.25;
+                margin: 1.4rem 0 0.7rem;
+            }
+        
+            .content h1 {
+                font-size: 1.45rem;
+            }
+        
+            .content h2 {
+                font-size: 1.25rem;
+            }
+        
+            .content h3 {
+                font-size: 1.08rem;
+            }
+        
+            .content ul,
+            .content ol {
+                margin: 0.6rem 0 1rem 1.4rem;
+            }
+        
+            .content li {
+                margin: 0.35rem 0;
+            }
+        
+            .content strong {
+                font-weight: 680;
+            }
+        
+            .content code {
+                font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                font-size: 0.88em;
+        
+                background: #f2f2f2;
+                padding: 2px 5px;
+                border-radius: 5px;
+            }
+        
+            .content pre {
+                margin: 1rem 0;
+                padding: 14px;
+        
+                overflow-x: auto;
+        
+                border: 1px solid var(--border);
+                border-radius: 10px;
+                background: #f7f7f7;
+            }
+        
+            .content pre code {
+                background: none;
+                padding: 0;
+            }
+        
+            .content blockquote {
+                margin: 1rem 0;
+                padding: 4px 0 4px 16px;
+        
+                border-left: 3px solid #d4d4d4;
+                color: #525252;
+            }
+        
+            .content table {
+                width: 100%;
+                border-collapse: collapse;
+                margin: 1rem 0;
+        
+                font-size: 0.9rem;
+            }
+        
+            .content th,
+            .content td {
+                padding: 10px 12px;
+                border: 1px solid var(--border);
+                text-align: left;
+                vertical-align: top;
+            }
+        
+            .content th {
+                background: #f6f6f6;
+                font-weight: 650;
+            }
+        
+            .content tr:nth-child(even) td {
+                background: #fcfcfc;
+            }
+        
+            /* ---------- Tool calls ---------- */
+        
+            .tool {
+                width: 88%;
+                align-self: flex-start;
+        
+                border: 1px solid #f0dfbb;
+                border-radius: 10px;
+        
+                background: var(--tool-bg);
+                overflow: hidden;
+        
+                font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                font-size: 0.76rem;
+            }
+        
+            .tool summary {
+                cursor: pointer;
+                padding: 10px 13px;
+        
+                font-family: ui-sans-serif, system-ui, sans-serif;
+                font-size: 0.75rem;
+                font-weight: 600;
+                color: #8a5a00;
+        
+                list-style-position: inside;
+            }
+        
+            .tool-body {
+                padding: 0 13px 13px;
+            }
+        
+            .tool-label {
+                margin: 10px 0 5px;
+        
+                font-family: ui-sans-serif, system-ui, sans-serif;
+                font-size: 0.66rem;
+                text-transform: uppercase;
+                letter-spacing: 0.07em;
+                color: #a17322;
+            }
+        
+            .tool pre {
+                white-space: pre-wrap;
+                word-break: break-word;
+        
+                max-height: 260px;
+                overflow-y: auto;
+        
+                background: rgba(255, 255, 255, 0.65);
+                border: 1px solid #ead7ae;
+                border-radius: 7px;
+        
+                padding: 9px;
+            }
+            .tool-debug {
+                display: block !important;
+                visibility: visible !important;
+                opacity: 1 !important;
+
+                flex: 0 0 auto !important;
+                flex-shrink: 0 !important;
+
+                width: 100%;
+                max-width: 92%;
+
+                height: auto !important;
+                min-height: 0 !important;
+                max-height: 240px !important;
+
+                align-self: flex-start;
+
+                margin: 8px 0 12px;
+                padding: 16px 18px;
+
+                background: #fff8e6;
+                color: #4d3500;
+
+                border: 1px solid #e6bd55;
+                border-left: 5px solid #d89a00;
+                border-radius: 12px;
+
+                font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                font-size: 0.78rem;
+                line-height: 1.55;
+
+                white-space: pre-wrap;
+                word-break: break-word;
+
+                overflow-y: auto !important;
+                overflow-x: hidden !important;
+
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+            }
+            .msg {
+                flex-shrink: 0;
+            }
+                    
+            /* ---------- Composer ---------- */
+        
+            #composer {
+                border-top: 1px solid var(--border);
+                background: #fcfcfb;
+            }
+        
+            #file-status {
+                padding: 10px 24px 0;
+        
+                font-size: 0.77rem;
+                color: var(--muted);
+            }
+        
+            #input-area {
+                display: flex;
+                align-items: flex-end;
+                gap: 10px;
+        
+                padding: 14px 18px 18px;
+            }
+        
+            #user-input {
+                flex: 1;
+                resize: none;
+        
+                min-height: 48px;
+                max-height: 140px;
+        
+                padding: 13px 14px;
+        
+                border: 1px solid var(--border);
+                border-radius: 11px;
+        
+                background: white;
+                color: var(--text);
+        
+                font: inherit;
+                line-height: 1.45;
+        
+                outline: none;
+            }
+        
+            #user-input:focus {
+                border-color: #a3a3a3;
+                box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.035);
+            }
+        
+            button {
+                border: none;
+                cursor: pointer;
+                font: inherit;
+            }
+        
+            #attach-btn {
+                min-height: 48px;
+        
+                padding: 0 14px;
+        
+                border: 1px solid var(--border);
+                border-radius: 10px;
+        
+                background: white;
+                color: #454545;
+        
+                font-size: 0.78rem;
+                white-space: nowrap;
+            }
+        
+            #attach-btn:hover {
+                background: #f5f5f5;
+            }
+        
+            #attach-btn.attached {
+                border-color: #b9d4bc;
+                background: #f3faf4;
+                color: #397043;
+            }
+        
+            #send-btn {
+                min-height: 48px;
+        
+                padding: 0 21px;
+        
+                border-radius: 10px;
+        
+                background: var(--accent);
+                color: white;
+        
+                font-size: 0.78rem;
+                font-weight: 600;
+            }
+        
+            #send-btn:hover {
+                opacity: 0.86;
+            }
+        
+            button:disabled {
+                opacity: 0.45;
+                cursor: default;
+            }
+        
+            @media (max-width: 700px) {
+                body {
+                    padding: 0;
+                }
+        
+                #container {
+                    min-height: 100vh;
+                    border: none;
+                    border-radius: 0;
+                }
+        
+                #messages {
+                    padding: 24px 18px;
+                    max-height: none;
+                }
+        
+                .msg,
+                .msg.assistant,
+                .tool {
+                    max-width: 100%;
+                    width: 100%;
+                }
+        
+                #input-area {
+                    padding: 12px;
+                }
+        
+                #attach-btn {
+                    padding: 0 10px;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div id="container">
+            <header id="app-header">
+                <div class="brand">
+                    <div class="brand-mark">♪</div>
+        
+                    <div>
+                        <h1>Studio Copilot</h1>
+                        <p>Production analysis, arrangement, samples & reference tracks</p>
+                    </div>
+                </div>
+            </header>
+        
+            <div id="messages">
+                <div class="empty-state" id="empty-state">
+                    <h2>What are you working on?</h2>
+                    <p>
+                        Ask about a sample, build a song arrangement, look up a
+                        reference track, or attach an audio bounce for analysis.
+                    </p>
+                </div>
+            </div>
+        
+            <div id="composer">
+                <div id="file-status" hidden></div>
+        
+                <div id="input-area">
+                    <input
+                        type="file"
+                        id="audio-file"
+                        accept=".wav,.mp3,.flac,.ogg,audio/*"
+                        hidden
+                    />
+        
+                    <button
+                        id="attach-btn"
+                        type="button"
+                        title="Attach an audio file"
+                    >
+                        + Audio
+                    </button>
+        
+                    <textarea
+                        id="user-input"
+                        rows="1"
+                        placeholder="Ask Studio Copilot..."
+                    ></textarea>
+        
+                    <button id="send-btn">
+                        Send
+                    </button>
+                </div>
+            </div>
+        </div>
+        <script>
+            const messages = document.getElementById("messages");
+            const userInput = document.getElementById("user-input");
+            const sendBtn = document.getElementById("send-btn");
+            const fileStatus = document.getElementById("file-status");
+            const audioFileInput =
+                document.getElementById("audio-file");
+
+            const attachBtn =
+                document.getElementById("attach-btn");
+
+            let audioFileId = null;
+            let audioFileName = null;
+            let sessionId = null;
+            attachBtn.addEventListener("click", function () {
+                audioFileInput.click();
+            });
+
+
+            audioFileInput.addEventListener(
+                "change",
+                async function () {
+                    const file = audioFileInput.files[0];
+
+                    if (!file) return;
+
+                    attachBtn.disabled = true;
+                    attachBtn.textContent = "Uploading...";
+
+                    const formData = new FormData();
+                    formData.append("file", file);
+
+                    try {
+                        const res = await fetch(
+                            "/upload-audio",
+                            {
+                                method: "POST",
+                                body: formData,
+                            },
+                        );
+
+                        const data = await res.json();
+
+                        if (!res.ok) {
+                            throw new Error(
+                                data.detail ||
+                                "Audio upload failed"
+                            );
+                        }
+
+                        audioFileId =
+                            data.audio_file_id;
+
+                        audioFileName =
+                            data.filename;
+
+                            attachBtn.textContent =
+                                "Replace audio";
+
+                            attachBtn.classList.add(
+                                "attached"
+                            );
+
+                            fileStatus.hidden = false;
+
+                            fileStatus.textContent =
+                                "Attached: " + audioFileName;
+
+                    } catch (e) {
+                        audioFileId = null;
+                        audioFileName = null;
+
+                        attachBtn.textContent =
+                            "Attach Audio";
+
+                        alert(
+                            "Upload failed: " +
+                            e.message
+                        );
+                        attachBtn.classList.remove(
+                            "attached"
+                        );
+
+                        fileStatus.hidden = true;
+                        fileStatus.textContent = "";
+                    }
+
+                    attachBtn.disabled = false;
+                },
+            );
+            function removeEmptyState() {
+                const emptyState =
+                    document.getElementById("empty-state");
+
+                if (emptyState) {
+                    emptyState.remove();
+                }
+            }
+
+
+            function renderMarkdown(element, text) {
+                const rawHtml = marked.parse(
+                    text || "",
+                    {
+                        gfm: true,
+                        breaks: true,
+                    },
+                );
+
+                element.innerHTML =
+                    DOMPurify.sanitize(rawHtml);
+
+                if (
+                    typeof renderMathInElement === "function"
+                ) {
+                    renderMathInElement(
+                        element,
+                        {
+                            delimiters: [
+                                {
+                                    left: "$$",
+                                    right: "$$",
+                                    display: true,
+                                },
+                                {
+                                    left: "$",
+                                    right: "$",
+                                    display: false,
+                                },
+                            ],
+                            throwOnError: false,
+                        },
+                    );
+                }
+            }
+
+
+            function addMessage(
+                role,
+                text,
+                isLoading = false,
+            ) {
+                removeEmptyState();
+
+                const div =
+                    document.createElement("div");
+
+                div.className =
+                    "msg " +
+                    (role === "you"
+                        ? "user"
+                        : "assistant") +
+                    (isLoading ? " loading" : "");
+
+                const roleDiv =
+                    document.createElement("div");
+
+                roleDiv.className = "role";
+                roleDiv.textContent = role;
+
+                const contentDiv =
+                    document.createElement("div");
+
+                contentDiv.className = "content";
+
+                if (
+                    role === "assistant" &&
+                    !isLoading
+                ) {
+                    renderMarkdown(
+                        contentDiv,
+                        text,
+                    );
+                } else {
+                    contentDiv.textContent = text;
+                }
+
+                div.appendChild(roleDiv);
+                div.appendChild(contentDiv);
+
+                messages.appendChild(div);
+
+                messages.scrollTop =
+                    messages.scrollHeight;
+
+                return div;
+            }
+            function prettyJson(value) {
+                try {
+                    const parsed =
+                        typeof value === "string"
+                            ? JSON.parse(value)
+                            : value;
+
+                    return JSON.stringify(
+                        parsed,
+                        null,
+                        2,
+                    );
+                } catch {
+                    return String(value);
+                }
+            }
+
+
+            function addToolCall(call, beforeNode) {
+                const div = document.createElement("div");
+                div.className = "tool-debug";
+
+                const args = prettyJson(call.args);
+                const result = prettyJson(call.result);
+
+                div.textContent =
+                    "⚙ TOOL USED: " + call.name +
+                    "\n\nINPUTS\n" +
+                    args +
+                    "\n\nOUTPUT\n" +
+                    result;
+
+                messages.insertBefore(div, beforeNode);
+            }
+
+            async function send() {
+                const text = userInput.value.trim();
+                if (!text) return;
+
+                userInput.value = "";
+                userInput.style.height = "auto";
+                sendBtn.disabled = true;
+                addMessage("you", text);
+                const loading = addMessage("assistant", "Thinking...", true);
+
+                try {
+                    const res = await fetch("/chat", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            message: text,
+                            session_id: sessionId,
+                            audio_file_id: audioFileId,
+                        }),
+                    });
+                    const data = await res.json();
+                    sessionId = data.session_id;
+
+                    // Show each tool the harness ran, above the assistant's answer
+                    for (const call of data.tool_calls || []) {
+                        addToolCall(
+                            call,
+                            loading,
+                        );
+                    }
+                    const responseContent =
+                        loading.querySelector(
+                            ".content"
+                        );
+
+                    renderMarkdown(
+                        responseContent,
+                        data.response,
+                    );
+                    loading.classList.remove("loading");
+                } catch (e) {
+                    loading.querySelector(".content").textContent =
+                        "Error: " + e.message;
+                    loading.classList.remove("loading");
+                }
+                sendBtn.disabled = false;
+                userInput.focus();
+            }
+
+            sendBtn.addEventListener("click", send);
+            userInput.addEventListener("keydown",function (e) {
+                if (
+                    e.key === "Enter" &&
+                    !e.shiftKey
+                ) {
+                    e.preventDefault();
+                    send();
+                }
+            });
+            userInput.addEventListener("input",function () {
+                userInput.style.height = "auto";
+
+                userInput.style.height = Math.min(
+                    userInput.scrollHeight,
+                    140,
+                ) + "px";
+            });
+            userInput.focus();
+        </script>
+    </body>
+</html>
