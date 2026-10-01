@@ -1,560 +1,1083 @@
 <!doctype html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Studio Copilot</title>
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Studio Copilot</title>
 
-        <link
-            rel="stylesheet"
-            href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"
-        />
-        
-        <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
-        
-        <script
-            defer
-            src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"
-        ></script>
-        
-        <script
-            defer
-            src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
-        ></script>
-        <style>
-            * {
-                box-sizing: border-box;
-                margin: 0;
-                padding: 0;
+    <link
+        rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"
+    />
+
+    <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+    <script
+        defer
+        src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"
+    ></script>
+    <script
+        defer
+        src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+    ></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        :root {
+            --bg: #080b10;
+            --header: #0d1117;
+            --panel: #10161e;
+            --panel-raised: #141c26;
+            --panel-soft: #17212d;
+            --border: #253242;
+            --border-soft: #1d2835;
+            --text: #e7eef7;
+            --muted: #8998aa;
+            --muted-2: #657487;
+            --green: #82ef63;
+            --green-soft: rgba(130, 239, 99, 0.1);
+            --green-border: rgba(130, 239, 99, 0.32);
+            --blue: #4c9cff;
+            --blue-soft: rgba(76, 156, 255, 0.1);
+            --amber: #e4ae47;
+            --amber-soft: #211b0f;
+            --amber-border: #604b22;
+            --danger: #ff7b72;
+        }
+
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+        }
+
+        body {
+            font-family:
+                Inter,
+                ui-sans-serif,
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            overflow: hidden;
+        }
+
+        button,
+        textarea,
+        input {
+            font: inherit;
+        }
+
+        button {
+            border: 0;
+        }
+
+        #container {
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* ---------- Header ---------- */
+
+        #app-header {
+            flex: 0 0 auto;
+            min-height: 68px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            padding: 12px 20px;
+            background: var(--header);
+            border-bottom: 1px solid var(--border-soft);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
+        }
+
+        .brand-mark {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            border: 1px solid var(--green-border);
+            background: linear-gradient(180deg, rgba(130, 239, 99, 0.12), rgba(130, 239, 99, 0.04));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            flex: 0 0 auto;
+        }
+
+        .brand-mark span {
+            width: 3px;
+            border-radius: 999px;
+            background: var(--green);
+            box-shadow: 0 0 8px rgba(130, 239, 99, 0.32);
+        }
+
+        .brand-mark span:nth-child(1) {
+            height: 15px;
+        }
+
+        .brand-mark span:nth-child(2) {
+            height: 25px;
+        }
+
+        .brand-mark span:nth-child(3) {
+            height: 19px;
+        }
+
+        .brand h1 {
+            font-size: 0.98rem;
+            font-weight: 720;
+            line-height: 1.15;
+            letter-spacing: -0.01em;
+        }
+
+        .brand p {
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 0.75rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .header-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--muted);
+            font-size: 0.75rem;
+        }
+
+        .status-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--green);
+            box-shadow: 0 0 8px rgba(130, 239, 99, 0.55);
+        }
+
+        /* ---------- Workspace ---------- */
+
+        #workspace {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: grid;
+            grid-template-columns: 300px minmax(0, 1fr);
+            gap: 14px;
+            padding: 14px;
+            overflow: hidden;
+        }
+
+        #sidebar,
+        #main {
+            min-width: 0;
+            min-height: 0;
+        }
+
+        #sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding-right: 3px;
+            scrollbar-gutter: stable;
+            scrollbar-width: thin;
+            scrollbar-color: #334256 transparent;
+        }
+
+        /* Keep Session and Quick Actions at their natural height. They should
+           never be squashed by a growing Agent Activity panel. */
+        #sidebar > .panel:not(.activity-panel) {
+            flex: 0 0 auto;
+        }
+
+        #main {
+            display: grid;
+            grid-template-rows: 280px minmax(0, 1fr);
+            gap: 14px;
+            overflow: hidden;
+        }
+
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border-soft);
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+        }
+
+        .panel-title {
+            min-height: 39px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 10px 13px;
+            background: var(--panel-raised);
+            border-bottom: 1px solid var(--border-soft);
+            color: var(--muted);
+            font-size: 0.67rem;
+            font-weight: 760;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+
+        .panel-title-badge {
+            color: var(--green);
+            letter-spacing: 0;
+            text-transform: none;
+            font-weight: 650;
+            font-size: 0.69rem;
+        }
+
+        /* ---------- Session ---------- */
+
+        .session-grid {
+            padding: 12px 13px;
+            display: grid;
+            gap: 10px;
+        }
+
+        .session-item {
+            display: grid;
+            grid-template-columns: 82px minmax(0, 1fr);
+            gap: 9px;
+            align-items: baseline;
+        }
+
+        .session-item .label {
+            color: var(--muted-2);
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+        }
+
+        .session-item .value {
+            min-width: 0;
+            color: var(--text);
+            font-size: 0.79rem;
+            line-height: 1.35;
+            word-break: break-word;
+        }
+
+        .session-item .value.accent {
+            color: var(--green);
+        }
+
+        /* ---------- Quick actions ---------- */
+
+        #quick-actions {
+            padding: 12px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .quick-action {
+            padding: 8px 10px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: var(--panel-raised);
+            color: #cbd5e1;
+            font-size: 0.72rem;
+            cursor: pointer;
+            transition: 140ms ease;
+        }
+
+        .quick-action:hover {
+            color: var(--green);
+            border-color: var(--green-border);
+            background: var(--green-soft);
+        }
+
+        /* ---------- Agent activity ---------- */
+
+        .activity-panel {
+            flex: 0 0 300px;
+            min-height: 220px;
+            max-height: 300px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #activity-log {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            padding: 11px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            scrollbar-width: thin;
+            scrollbar-color: #334256 transparent;
+        }
+
+        .activity-empty {
+            padding: 8px 3px;
+            color: var(--muted-2);
+            font-size: 0.76rem;
+            line-height: 1.5;
+        }
+
+        .activity-item {
+            flex: 0 0 auto;
+            background: var(--amber-soft);
+            border: 1px solid var(--amber-border);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .activity-header {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 8px 10px;
+            border-bottom: 1px solid rgba(228, 174, 71, 0.17);
+        }
+
+        .activity-icon {
+            color: var(--amber);
+            font-size: 0.78rem;
+        }
+
+        .activity-name {
+            color: #f3d28a;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 0.71rem;
+            font-weight: 720;
+            word-break: break-all;
+        }
+
+        .activity-body {
+            padding: 9px 10px 10px;
+            display: grid;
+            gap: 8px;
+        }
+
+        .activity-section-title {
+            margin-bottom: 4px;
+            color: #9b8556;
+            font-size: 0.59rem;
+            font-weight: 760;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .activity-code {
+            max-height: 130px;
+            overflow: auto;
+            margin: 0;
+            padding: 8px;
+            border: 1px solid rgba(228, 174, 71, 0.15);
+            border-radius: 7px;
+            background: rgba(3, 6, 10, 0.34);
+            color: #d7c8a4;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 0.64rem;
+            line-height: 1.48;
+            white-space: pre-wrap;
+            word-break: break-word;
+            scrollbar-width: thin;
+        }
+
+        /* ---------- Scrollbars ---------- */
+
+        #sidebar::-webkit-scrollbar,
+        #activity-log::-webkit-scrollbar,
+        #messages::-webkit-scrollbar,
+        .activity-code::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        #sidebar::-webkit-scrollbar-thumb,
+        #activity-log::-webkit-scrollbar-thumb,
+        #messages::-webkit-scrollbar-thumb,
+        .activity-code::-webkit-scrollbar-thumb {
+            background: #334256;
+            border-radius: 999px;
+        }
+
+        #sidebar::-webkit-scrollbar-track,
+        #activity-log::-webkit-scrollbar-track,
+        #messages::-webkit-scrollbar-track,
+        .activity-code::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        /* ---------- Waveform ---------- */
+
+        #waveform-panel {
+            min-height: 0;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* The hidden attribute must win over our display rules. Without these
+           selectors, the empty-state copy can remain visible after upload and
+           steal height from the waveform/player. */
+        #waveform-empty[hidden],
+        #waveform-content[hidden] {
+            display: none !important;
+        }
+
+        #waveform-empty {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+            color: var(--muted-2);
+            text-align: center;
+            font-size: 0.82rem;
+        }
+
+        #waveform-content:not([hidden]) {
+            flex: 1 1 auto;
+            min-height: 0;
+            padding: 10px 13px 9px;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            overflow: hidden;
+        }
+
+        #waveform-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 9px;
+        }
+
+        #waveform-filename {
+            min-width: 0;
+            color: #dbe7f3;
+            font-size: 0.79rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        #waveform-duration {
+            color: var(--muted);
+            font-size: 0.72rem;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .waveform-wrap {
+            position: relative;
+            width: 100%;
+        }
+
+        #waveform-canvas {
+            display: block;
+            width: 100%;
+            height: 112px;
+            flex: 0 0 112px;
+            min-height: 112px;
+            max-height: 112px;
+            border: 1px solid var(--border-soft);
+            border-radius: 10px;
+            background:
+                linear-gradient(180deg, rgba(76, 156, 255, 0.035), transparent 55%),
+                #090e14;
+        }
+
+        .waveform-label {
+            position: absolute;
+            left: 10px;
+            bottom: 8px;
+            color: rgba(137, 152, 170, 0.58);
+            font-size: 0.62rem;
+            pointer-events: none;
+        }
+
+        #audio-player {
+            display: block;
+            width: 100%;
+            height: 34px;
+            min-height: 34px;
+            flex: 0 0 34px;
+            margin-top: 7px;
+            filter: invert(0.88) hue-rotate(175deg) saturate(0.85);
+            opacity: 0.9;
+        }
+
+        /* ---------- Conversation ---------- */
+
+        .conversation-panel {
+            min-height: 0;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #messages {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            padding: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 17px;
+            scrollbar-width: thin;
+            scrollbar-color: #334256 transparent;
+        }
+
+        .empty-state {
+            margin: auto;
+            max-width: 500px;
+            padding: 34px 24px;
+            text-align: center;
+        }
+
+        .empty-state h2 {
+            margin-bottom: 8px;
+            color: #dce7f3;
+            font-size: 1.15rem;
+            letter-spacing: -0.01em;
+        }
+
+        .empty-state p {
+            color: var(--muted);
+            font-size: 0.82rem;
+            line-height: 1.65;
+        }
+
+        .msg {
+            flex: 0 0 auto;
+            line-height: 1.65;
+        }
+
+        .msg.user {
+            width: fit-content;
+            max-width: 78%;
+            align-self: flex-end;
+            padding: 11px 13px;
+            border: 1px solid #2c3a4a;
+            border-radius: 14px 14px 4px 14px;
+            background: #151c25;
+        }
+
+        .msg.assistant {
+            width: 100%;
+            max-width: 100%;
+            align-self: flex-start;
+        }
+
+        .msg .role {
+            margin-bottom: 6px;
+            color: var(--muted-2);
+            font-size: 0.62rem;
+            font-weight: 720;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+
+        .msg.user .role {
+            color: #79889a;
+        }
+
+        .msg.loading .content {
+            color: var(--muted);
+        }
+
+        .content {
+            color: var(--text);
+            font-size: 0.88rem;
+            line-height: 1.72;
+            overflow-wrap: anywhere;
+        }
+
+        .content > *:first-child {
+            margin-top: 0;
+        }
+
+        .content > *:last-child {
+            margin-bottom: 0;
+        }
+
+        .content p {
+            margin: 0 0 0.85rem;
+        }
+
+        .content h1,
+        .content h2,
+        .content h3,
+        .content h4 {
+            margin: 1.3rem 0 0.65rem;
+            color: #f0f5fb;
+            line-height: 1.3;
+        }
+
+        .content h1 { font-size: 1.34rem; }
+        .content h2 { font-size: 1.14rem; }
+        .content h3 { font-size: 1rem; }
+        .content h4 { font-size: 0.92rem; }
+
+        .content ul,
+        .content ol {
+            margin: 0.55rem 0 0.9rem 1.35rem;
+        }
+
+        .content li {
+            margin: 0.3rem 0;
+        }
+
+        .content strong {
+            color: #f1f6fc;
+            font-weight: 720;
+        }
+
+        .content a {
+            color: #7db8ff;
+        }
+
+        .content code {
+            padding: 2px 5px;
+            border: 1px solid #223041;
+            border-radius: 5px;
+            background: #0c1219;
+            color: #b9ddff;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 0.86em;
+        }
+
+        .content pre {
+            margin: 0.9rem 0;
+            padding: 12px;
+            overflow-x: auto;
+            border: 1px solid var(--border-soft);
+            border-radius: 9px;
+            background: #0a0f15;
+        }
+
+        .content pre code {
+            padding: 0;
+            border: 0;
+            background: transparent;
+        }
+
+        .content blockquote {
+            margin: 0.9rem 0;
+            padding: 5px 0 5px 13px;
+            border-left: 3px solid var(--blue);
+            color: #b6c3d2;
+        }
+
+        .content table {
+            width: 100%;
+            margin: 0.85rem 0 1rem;
+            border-collapse: collapse;
+            font-size: 0.79rem;
+        }
+
+        .content th,
+        .content td {
+            padding: 8px 10px;
+            border: 1px solid var(--border-soft);
+            text-align: left;
+            vertical-align: top;
+        }
+
+        .content th {
+            background: #151e28;
+            color: #e1ebf5;
+            font-weight: 680;
+        }
+
+        .content tr:nth-child(even) td {
+            background: rgba(23, 33, 45, 0.34);
+        }
+
+        /* ---------- Composer ---------- */
+
+        #composer {
+            flex: 0 0 auto;
+            padding: 0 14px 14px;
+            background: linear-gradient(180deg, rgba(8, 11, 16, 0.3), var(--bg));
+        }
+
+        #composer-inner {
+            max-width: 1180px;
+            margin: 0 auto;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            background: #101720;
+            box-shadow: 0 12px 36px rgba(0, 0, 0, 0.28);
+            overflow: hidden;
+        }
+
+        #file-status {
+            padding: 8px 12px 0;
+            color: var(--muted);
+            font-size: 0.7rem;
+        }
+
+        #input-area {
+            display: flex;
+            align-items: flex-end;
+            gap: 9px;
+            padding: 10px;
+        }
+
+        #user-input {
+            flex: 1 1 auto;
+            min-width: 0;
+            min-height: 46px;
+            max-height: 130px;
+            resize: none;
+            padding: 12px 13px;
+            border: 1px solid #263445;
+            border-radius: 10px;
+            background: #0c1219;
+            color: var(--text);
+            line-height: 1.45;
+            outline: none;
+            transition: 140ms ease;
+        }
+
+        #user-input::placeholder {
+            color: #627184;
+        }
+
+        #user-input:focus {
+            border-color: rgba(76, 156, 255, 0.72);
+            box-shadow: 0 0 0 3px rgba(76, 156, 255, 0.07);
+        }
+
+        #attach-btn,
+        #send-btn {
+            min-height: 46px;
+            padding: 0 14px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: 140ms ease;
+            white-space: nowrap;
+        }
+
+        #attach-btn {
+            min-width: 92px;
+            border: 1px solid var(--border);
+            background: #151d27;
+            color: #c6d2df;
+        }
+
+        #attach-btn:hover {
+            border-color: #3a4b5e;
+            background: #19232f;
+        }
+
+        #attach-btn.attached {
+            border-color: var(--green-border);
+            background: var(--green-soft);
+            color: var(--green);
+        }
+
+        #attach-btn.uploading {
+            position: relative;
+            border-color: var(--green-border);
+            background: var(--green-soft);
+            color: var(--green);
+            animation: uploadPulse 1.15s infinite ease-in-out;
+        }
+
+        #send-btn {
+            min-width: 72px;
+            background: var(--green);
+            color: #071108;
+            font-weight: 760;
+        }
+
+        #send-btn:hover {
+            filter: brightness(1.08);
+        }
+
+        button:disabled {
+            cursor: default;
+            opacity: 0.55;
+        }
+
+        @keyframes uploadPulse {
+            0%, 100% {
+                box-shadow: 0 0 0 0 rgba(130, 239, 99, 0.02);
             }
-        
-            :root {
-                --bg: #f5f5f3;
-                --panel: #ffffff;
-                --text: #171717;
-                --muted: #737373;
-                --border: #e5e5e5;
-                --soft: #f7f7f7;
-                --tool-bg: #fffaf0;
-                --tool-border: #f1c36d;
-                --accent: #171717;
+            50% {
+                box-shadow: 0 0 18px 2px rgba(130, 239, 99, 0.12);
             }
-        
+        }
+
+        /* ---------- Responsive ---------- */
+
+        @media (max-width: 980px) {
             body {
-                font-family:
-                    Inter,
-                    ui-sans-serif,
-                    -apple-system,
-                    BlinkMacSystemFont,
-                    "Segoe UI",
-                    sans-serif;
-        
-                min-height: 100vh;
-                background: var(--bg);
-                color: var(--text);
-                padding: 32px 20px;
+                overflow: auto;
             }
-        
+
             #container {
-                width: 100%;
-                max-width: 1000px;
-                min-height: calc(100vh - 64px);
-                margin: 0 auto;
-        
+                height: auto;
+                min-height: 100vh;
+                overflow: visible;
+            }
+
+            #workspace {
                 display: flex;
                 flex-direction: column;
-        
-                background: var(--panel);
-                border: 1px solid var(--border);
-                border-radius: 18px;
-                overflow: hidden;
-        
-                box-shadow:
-                    0 1px 2px rgba(0, 0, 0, 0.04),
-                    0 10px 35px rgba(0, 0, 0, 0.04);
+                overflow: visible;
             }
-        
+
+            #main {
+                order: 1;
+                display: flex;
+                flex-direction: column;
+                overflow: visible;
+            }
+
+            #sidebar {
+                order: 2;
+                overflow: visible;
+                padding-right: 0;
+            }
+
+            #waveform-panel {
+                height: auto;
+                min-height: 265px;
+            }
+
+            .conversation-panel {
+                height: auto;
+                min-height: 420px;
+            }
+
+            .activity-panel {
+                flex: 0 0 auto;
+                max-height: none;
+                min-height: 320px;
+            }
+
+            #messages,
+            #activity-log {
+                max-height: 520px;
+            }
+        }
+
+        @media (max-width: 640px) {
             #app-header {
-                padding: 22px 28px;
-                border-bottom: 1px solid var(--border);
-        
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                gap: 20px;
+                padding: 11px 13px;
             }
-        
-            .brand {
-                display: flex;
-                align-items: center;
-                gap: 13px;
-            }
-        
-            .brand-mark {
-                width: 38px;
-                height: 38px;
-                border-radius: 10px;
-                background: #171717;
-                color: white;
-        
-                display: flex;
-                align-items: center;
-                justify-content: center;
-        
-                font-size: 18px;
-            }
-        
-            .brand h1 {
-                font-size: 1rem;
-                line-height: 1.2;
-                font-weight: 650;
-            }
-        
-            .brand p {
-                margin-top: 3px;
-                font-size: 0.78rem;
-                color: var(--muted);
-            }
-        
-            #messages {
-                flex: 1;
-                overflow-y: auto;
-        
-                padding: 32px 32px 48px;
-        
-                display: flex;
-                flex-direction: column;
-                gap: 22px;
-        
-                min-height: 520px;
-                max-height: calc(100vh - 245px);
-            }
-        
-            .empty-state {
-                margin: auto;
-                text-align: center;
-                max-width: 520px;
-                padding: 50px 20px;
-            }
-        
-            .empty-state h2 {
-                font-size: 1.45rem;
-                margin-bottom: 10px;
-            }
-        
-            .empty-state p {
-                color: var(--muted);
-                line-height: 1.6;
-                font-size: 0.93rem;
-            }
-        
-            .msg {
-                width: fit-content;
-                max-width: 82%;
-                line-height: 1.65;
-            }
-        
-            .msg.user {
-                align-self: flex-end;
-                background: #171717;
-                color: white;
-        
-                padding: 12px 16px;
-                border-radius: 16px 16px 4px 16px;
-            }
-        
-            .msg.assistant {
-                align-self: flex-start;
-                width: 100%;
-                max-width: 88%;
-            }
-        
-            .msg .role {
-                margin-bottom: 7px;
-        
-                font-size: 0.68rem;
-                text-transform: uppercase;
-                letter-spacing: 0.08em;
-                color: #9a9a9a;
-            }
-        
-            .msg.user .role {
-                color: #bdbdbd;
-            }
-        
-            .msg.loading .content {
-                color: var(--muted);
-            }
-        
-            /* ---------- Markdown ---------- */
-        
-            .content {
-                overflow-wrap: anywhere;
-            }
-        
-            .content > *:first-child {
-                margin-top: 0;
-            }
-        
-            .content > *:last-child {
-                margin-bottom: 0;
-            }
-        
-            .content p {
-                margin: 0 0 0.9rem;
-            }
-        
-            .content h1,
-            .content h2,
-            .content h3,
-            .content h4 {
-                line-height: 1.25;
-                margin: 1.4rem 0 0.7rem;
-            }
-        
-            .content h1 {
-                font-size: 1.45rem;
-            }
-        
-            .content h2 {
-                font-size: 1.25rem;
-            }
-        
-            .content h3 {
-                font-size: 1.08rem;
-            }
-        
-            .content ul,
-            .content ol {
-                margin: 0.6rem 0 1rem 1.4rem;
-            }
-        
-            .content li {
-                margin: 0.35rem 0;
-            }
-        
-            .content strong {
-                font-weight: 680;
-            }
-        
-            .content code {
-                font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-                font-size: 0.88em;
-        
-                background: #f2f2f2;
-                padding: 2px 5px;
-                border-radius: 5px;
-            }
-        
-            .content pre {
-                margin: 1rem 0;
-                padding: 14px;
-        
-                overflow-x: auto;
-        
-                border: 1px solid var(--border);
-                border-radius: 10px;
-                background: #f7f7f7;
-            }
-        
-            .content pre code {
-                background: none;
-                padding: 0;
-            }
-        
-            .content blockquote {
-                margin: 1rem 0;
-                padding: 4px 0 4px 16px;
-        
-                border-left: 3px solid #d4d4d4;
-                color: #525252;
-            }
-        
-            .content table {
-                width: 100%;
-                border-collapse: collapse;
-                margin: 1rem 0;
-        
-                font-size: 0.9rem;
-            }
-        
-            .content th,
-            .content td {
-                padding: 10px 12px;
-                border: 1px solid var(--border);
-                text-align: left;
-                vertical-align: top;
-            }
-        
-            .content th {
-                background: #f6f6f6;
-                font-weight: 650;
-            }
-        
-            .content tr:nth-child(even) td {
-                background: #fcfcfc;
-            }
-        
-            /* ---------- Tool calls ---------- */
-        
-            .tool {
-                width: 88%;
-                align-self: flex-start;
-        
-                border: 1px solid #f0dfbb;
-                border-radius: 10px;
-        
-                background: var(--tool-bg);
-                overflow: hidden;
-        
-                font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-                font-size: 0.76rem;
-            }
-        
-            .tool summary {
-                cursor: pointer;
-                padding: 10px 13px;
-        
-                font-family: ui-sans-serif, system-ui, sans-serif;
-                font-size: 0.75rem;
-                font-weight: 600;
-                color: #8a5a00;
-        
-                list-style-position: inside;
-            }
-        
-            .tool-body {
-                padding: 0 13px 13px;
-            }
-        
-            .tool-label {
-                margin: 10px 0 5px;
-        
-                font-family: ui-sans-serif, system-ui, sans-serif;
-                font-size: 0.66rem;
-                text-transform: uppercase;
-                letter-spacing: 0.07em;
-                color: #a17322;
-            }
-        
-            .tool pre {
-                white-space: pre-wrap;
-                word-break: break-word;
-        
-                max-height: 260px;
-                overflow-y: auto;
-        
-                background: rgba(255, 255, 255, 0.65);
-                border: 1px solid #ead7ae;
-                border-radius: 7px;
-        
-                padding: 9px;
-            }
-            .tool-debug {
-                display: block !important;
-                visibility: visible !important;
-                opacity: 1 !important;
 
-                flex: 0 0 auto !important;
-                flex-shrink: 0 !important;
-
-                width: 100%;
-                max-width: 92%;
-
-                height: auto !important;
-                min-height: 0 !important;
-                max-height: 240px !important;
-
-                align-self: flex-start;
-
-                margin: 8px 0 12px;
-                padding: 16px 18px;
-
-                background: #fff8e6;
-                color: #4d3500;
-
-                border: 1px solid #e6bd55;
-                border-left: 5px solid #d89a00;
-                border-radius: 12px;
-
-                font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-                font-size: 0.78rem;
-                line-height: 1.55;
-
-                white-space: pre-wrap;
-                word-break: break-word;
-
-                overflow-y: auto !important;
-                overflow-x: hidden !important;
-
-                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+            .header-status {
+                display: none;
             }
-            .msg {
-                flex-shrink: 0;
-            }
-                    
-            /* ---------- Composer ---------- */
-        
-            #composer {
-                border-top: 1px solid var(--border);
-                background: #fcfcfb;
-            }
-        
-            #file-status {
-                padding: 10px 24px 0;
-        
-                font-size: 0.77rem;
-                color: var(--muted);
-            }
-        
-            #input-area {
-                display: flex;
-                align-items: flex-end;
+
+            #workspace {
+                padding: 10px;
                 gap: 10px;
-        
-                padding: 14px 18px 18px;
             }
-        
+
+            #sidebar,
+            #main {
+                gap: 10px;
+            }
+
+            .msg.user {
+                max-width: 92%;
+            }
+
+            #composer {
+                padding: 0 10px 10px;
+            }
+
+            #input-area {
+                flex-wrap: wrap;
+            }
+
             #user-input {
-                flex: 1;
-                resize: none;
-        
-                min-height: 48px;
-                max-height: 140px;
-        
-                padding: 13px 14px;
-        
-                border: 1px solid var(--border);
-                border-radius: 11px;
-        
-                background: white;
-                color: var(--text);
-        
-                font: inherit;
-                line-height: 1.45;
-        
-                outline: none;
+                order: 1;
+                flex-basis: 100%;
             }
-        
-            #user-input:focus {
-                border-color: #a3a3a3;
-                box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.035);
-            }
-        
-            button {
-                border: none;
-                cursor: pointer;
-                font: inherit;
-            }
-        
+
             #attach-btn {
-                min-height: 48px;
-        
-                padding: 0 14px;
-        
-                border: 1px solid var(--border);
-                border-radius: 10px;
-        
-                background: white;
-                color: #454545;
-        
-                font-size: 0.78rem;
-                white-space: nowrap;
+                order: 2;
             }
-        
-            #attach-btn:hover {
-                background: #f5f5f5;
-            }
-        
-            #attach-btn.attached {
-                border-color: #b9d4bc;
-                background: #f3faf4;
-                color: #397043;
-            }
-        
+
             #send-btn {
-                min-height: 48px;
-        
-                padding: 0 21px;
-        
-                border-radius: 10px;
-        
-                background: var(--accent);
-                color: white;
-        
-                font-size: 0.78rem;
-                font-weight: 600;
+                order: 3;
+                margin-left: auto;
             }
-        
-            #send-btn:hover {
-                opacity: 0.86;
-            }
-        
-            button:disabled {
-                opacity: 0.45;
-                cursor: default;
-            }
-        
-            @media (max-width: 700px) {
-                body {
-                    padding: 0;
-                }
-        
-                #container {
-                    min-height: 100vh;
-                    border: none;
-                    border-radius: 0;
-                }
-        
-                #messages {
-                    padding: 24px 18px;
-                    max-height: none;
-                }
-        
-                .msg,
-                .msg.assistant,
-                .tool {
-                    max-width: 100%;
-                    width: 100%;
-                }
-        
-                #input-area {
-                    padding: 12px;
-                }
-        
-                #attach-btn {
-                    padding: 0 10px;
-                }
-            }
-        </style>
-    </head>
-    <body>
-        <div id="container">
-            <header id="app-header">
-                <div class="brand">
-                    <div class="brand-mark">♪</div>
-        
-                    <div>
-                        <h1>Studio Copilot</h1>
-                        <p>Production analysis, arrangement, samples & reference tracks</p>
-                    </div>
+        }
+    </style>
+</head>
+
+<body>
+    <div id="container">
+        <header id="app-header">
+            <div class="brand">
+                <div class="brand-mark" aria-hidden="true">
+                    <span></span>
+                    <span></span>
+                    <span></span>
                 </div>
-            </header>
-        
-            <div id="messages">
-                <div class="empty-state" id="empty-state">
-                    <h2>What are you working on?</h2>
-                    <p>
-                        Ask about a sample, build a song arrangement, look up a
-                        reference track, or attach an audio bounce for analysis.
-                    </p>
+                <div>
+                    <h1>Studio Copilot</h1>
+                    <p>Agentic production workspace for musicians and producers</p>
                 </div>
             </div>
-        
-            <div id="composer">
+
+            <div class="header-status">
+                <span class="status-dot"></span>
+                <span>Agent ready</span>
+            </div>
+        </header>
+
+        <div id="workspace">
+            <aside id="sidebar">
+                <section class="panel">
+                    <div class="panel-title">
+                        <span>Session</span>
+                        <span class="panel-title-badge">Live context</span>
+                    </div>
+
+                    <div class="session-grid">
+                        <div class="session-item">
+                            <span class="label">Track</span>
+                            <span class="value" id="session-track">None attached</span>
+                        </div>
+                        <div class="session-item">
+                            <span class="label">Duration</span>
+                            <span class="value" id="session-duration">—</span>
+                        </div>
+                        <div class="session-item">
+                            <span class="label">Tempo</span>
+                            <span class="value" id="session-tempo">—</span>
+                        </div>
+                        <div class="session-item">
+                            <span class="label">Key</span>
+                            <span class="value" id="session-key">—</span>
+                        </div>
+                        <div class="session-item">
+                            <span class="label">Reference</span>
+                            <span class="value" id="session-reference">—</span>
+                        </div>
+                        <div class="session-item">
+                            <span class="label">Arrangement</span>
+                            <span class="value" id="session-arrangement">—</span>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-title">Quick Actions</div>
+                    <div id="quick-actions">
+                        <button
+                            class="quick-action"
+                            data-prompt="Analyze this track. Give me the estimated BPM and key, then explain how the energy changes from beginning to end."
+                        >Analyze track</button>
+
+                        <button
+                            class="quick-action"
+                            data-prompt="Compare 0:20-0:45 against 0:45-1:10. Which region is more energetic, and what measurements support that?"
+                        >Compare sections</button>
+
+                        <button
+                            class="quick-action"
+                            data-prompt="Build me a roughly 3-minute arrangement for this track."
+                        >Build arrangement</button>
+
+                        <button
+                            class="quick-action"
+                            data-prompt="I have an 8-bar guitar loop at 92 BPM in D minor. I’m producing at 124 BPM in F minor. Tell me exactly how to adapt the sample."
+                        >Adapt sample</button>
+
+                        <button
+                            class="quick-action"
+                            data-prompt="How long is &quot;Nights&quot; by Frank Ocean? I want to use the original studio version as a duration reference."
+                        >Reference track</button>
+                    </div>
+                </section>
+
+                <section class="panel activity-panel">
+                    <div class="panel-title">
+                        <span>Agent Activity</span>
+                        <span class="panel-title-badge" id="tool-count">0 calls</span>
+                    </div>
+                    <div id="activity-log">
+                        <div class="activity-empty">
+                            Tool calls will appear here with their inputs and outputs.
+                        </div>
+                    </div>
+                </section>
+            </aside>
+
+            <main id="main">
+                <section class="panel" id="waveform-panel">
+                    <div class="panel-title">
+                        <span>Track View</span>
+                        <span class="panel-title-badge" id="track-state">No audio</span>
+                    </div>
+
+                    <div id="waveform-empty">
+                        Attach a WAV, MP3, FLAC, or OGG file to load the track workspace.
+                    </div>
+
+                    <div id="waveform-content" hidden>
+                        <div id="waveform-meta">
+                            <div id="waveform-filename">No file selected</div>
+                            <div id="waveform-duration">—</div>
+                        </div>
+
+                        <div class="waveform-wrap">
+                            <canvas id="waveform-canvas" width="1200" height="180"></canvas>
+                            <div class="waveform-label">waveform preview</div>
+                        </div>
+
+                        <audio id="audio-player" controls preload="metadata"></audio>
+                    </div>
+                </section>
+
+                <section class="panel conversation-panel">
+                    <div class="panel-title">
+                        <span>Production Notes</span>
+                        <span class="panel-title-badge">AI workspace</span>
+                    </div>
+
+                    <div id="messages">
+                        <div class="empty-state" id="empty-state">
+                            <h2>What are you working on?</h2>
+                            <p>
+                                Attach a track or describe a production goal. Studio Copilot can
+                                analyze audio, adapt samples, build arrangements, and work from
+                                reference-track metadata while exposing every tool it uses.
+                            </p>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+
+        <div id="composer">
+            <div id="composer-inner">
                 <div id="file-status" hidden></div>
-        
+
                 <div id="input-area">
                     <input
                         type="file"
@@ -562,317 +1085,495 @@
                         accept=".wav,.mp3,.flac,.ogg,audio/*"
                         hidden
                     />
-        
+
                     <button
                         id="attach-btn"
                         type="button"
                         title="Attach an audio file"
-                    >
-                        + Audio
-                    </button>
-        
+                    >+ Audio</button>
+
                     <textarea
                         id="user-input"
                         rows="1"
-                        placeholder="Ask Studio Copilot..."
+                        placeholder="What do you want to do with this track?"
                     ></textarea>
-        
-                    <button id="send-btn">
-                        Send
-                    </button>
+
+                    <button id="send-btn" type="button">Send</button>
                 </div>
             </div>
         </div>
-        <script>
-            const messages = document.getElementById("messages");
-            const userInput = document.getElementById("user-input");
-            const sendBtn = document.getElementById("send-btn");
-            const fileStatus = document.getElementById("file-status");
-            const audioFileInput =
-                document.getElementById("audio-file");
+    </div>
 
-            const attachBtn =
-                document.getElementById("attach-btn");
+    <script>
+        const messages = document.getElementById("messages");
+        const userInput = document.getElementById("user-input");
+        const sendBtn = document.getElementById("send-btn");
+        const fileStatus = document.getElementById("file-status");
+        const audioFileInput = document.getElementById("audio-file");
+        const attachBtn = document.getElementById("attach-btn");
 
-            let audioFileId = null;
-            let audioFileName = null;
-            let sessionId = null;
-            attachBtn.addEventListener("click", function () {
-                audioFileInput.click();
+        const activityLog = document.getElementById("activity-log");
+        const toolCount = document.getElementById("tool-count");
+
+        const waveformCanvas = document.getElementById("waveform-canvas");
+        const waveformEmpty = document.getElementById("waveform-empty");
+        const waveformContent = document.getElementById("waveform-content");
+        const waveformFilename = document.getElementById("waveform-filename");
+        const waveformDuration = document.getElementById("waveform-duration");
+        const audioPlayer = document.getElementById("audio-player");
+        const trackState = document.getElementById("track-state");
+
+        const sessionTrack = document.getElementById("session-track");
+        const sessionDuration = document.getElementById("session-duration");
+        const sessionTempo = document.getElementById("session-tempo");
+        const sessionKey = document.getElementById("session-key");
+        const sessionReference = document.getElementById("session-reference");
+        const sessionArrangement = document.getElementById("session-arrangement");
+
+        let audioFileId = null;
+        let audioFileName = null;
+        let sessionId = null;
+        let currentAudioObjectUrl = null;
+        let toolCallCount = 0;
+
+        const sessionState = {
+            track: "None attached",
+            duration: "—",
+            tempo: "—",
+            key: "—",
+            reference: "—",
+            arrangement: "—",
+        };
+
+        function formatTime(seconds) {
+            const value = Number(seconds);
+            if (!Number.isFinite(value) || value < 0) return "—";
+
+            const total = Math.round(value);
+            const minutes = Math.floor(total / 60);
+            const secs = total % 60;
+            return `${minutes}:${String(secs).padStart(2, "0")}`;
+        }
+
+        function renderSessionState() {
+            sessionTrack.textContent = sessionState.track;
+            sessionDuration.textContent = sessionState.duration;
+            sessionTempo.textContent = sessionState.tempo;
+            sessionKey.textContent = sessionState.key;
+            sessionReference.textContent = sessionState.reference;
+            sessionArrangement.textContent = sessionState.arrangement;
+
+            sessionTempo.classList.toggle("accent", sessionState.tempo !== "—");
+            sessionKey.classList.toggle("accent", sessionState.key !== "—");
+        }
+
+        function removeEmptyState() {
+            const emptyState = document.getElementById("empty-state");
+            if (emptyState) emptyState.remove();
+        }
+
+        function renderMarkdown(element, text) {
+            const rawHtml = marked.parse(text || "", {
+                gfm: true,
+                breaks: true,
             });
 
+            element.innerHTML = DOMPurify.sanitize(rawHtml);
 
-            audioFileInput.addEventListener(
-                "change",
-                async function () {
-                    const file = audioFileInput.files[0];
+            if (typeof renderMathInElement === "function") {
+                renderMathInElement(element, {
+                    delimiters: [
+                        { left: "$$", right: "$$", display: true },
+                        { left: "$", right: "$", display: false },
+                    ],
+                    throwOnError: false,
+                });
+            }
+        }
 
-                    if (!file) return;
+        function addMessage(role, text, isLoading = false) {
+            removeEmptyState();
 
-                    attachBtn.disabled = true;
-                    attachBtn.textContent = "Uploading...";
+            const div = document.createElement("div");
+            div.className =
+                "msg " +
+                (role === "you" ? "user" : "assistant") +
+                (isLoading ? " loading" : "");
 
-                    const formData = new FormData();
-                    formData.append("file", file);
+            const roleDiv = document.createElement("div");
+            roleDiv.className = "role";
+            roleDiv.textContent = role;
 
-                    try {
-                        const res = await fetch(
-                            "/upload-audio",
-                            {
-                                method: "POST",
-                                body: formData,
-                            },
-                        );
+            const contentDiv = document.createElement("div");
+            contentDiv.className = "content";
 
-                        const data = await res.json();
+            if (role === "assistant" && !isLoading) {
+                renderMarkdown(contentDiv, text);
+            } else {
+                contentDiv.textContent = text;
+            }
 
-                        if (!res.ok) {
-                            throw new Error(
-                                data.detail ||
-                                "Audio upload failed"
-                            );
-                        }
+            div.appendChild(roleDiv);
+            div.appendChild(contentDiv);
+            messages.appendChild(div);
+            messages.scrollTop = messages.scrollHeight;
 
-                        audioFileId =
-                            data.audio_file_id;
+            return div;
+        }
 
-                        audioFileName =
-                            data.filename;
+        function prettyJson(value) {
+            try {
+                const parsed = typeof value === "string" ? JSON.parse(value) : value;
+                return JSON.stringify(parsed, null, 2);
+            } catch {
+                return String(value);
+            }
+        }
 
-                            attachBtn.textContent =
-                                "Replace audio";
+        function parseResult(value) {
+            if (typeof value !== "string") return value;
 
-                            attachBtn.classList.add(
-                                "attached"
-                            );
+            try {
+                return JSON.parse(value);
+            } catch {
+                return null;
+            }
+        }
 
-                            fileStatus.hidden = false;
+        function updateSessionFromToolCall(call) {
+            const result = parseResult(call.result);
+            if (!result || typeof result !== "object") return;
 
-                            fileStatus.textContent =
-                                "Attached: " + audioFileName;
+            if (call.name === "lookup_reference_track" && result.selected_match) {
+                const ref = result.selected_match;
+                sessionState.reference = `${ref.title || "Track"} — ${ref.artist || "Unknown"}${
+                    ref.duration ? ` (${ref.duration})` : ""
+                }`;
+            }
 
-                    } catch (e) {
-                        audioFileId = null;
-                        audioFileName = null;
+            if (call.name === "build_arrangement") {
+                const duration = result.actual_duration || "—";
+                const bars = result.total_bars ?? "—";
+                sessionState.arrangement = `${duration} · ${bars} bars`;
+            }
 
-                        attachBtn.textContent =
-                            "Attach Audio";
+            if (call.name === "analyze_audio_track") {
+                if (Number.isFinite(Number(result.full_track_duration_seconds))) {
+                    const seconds = Number(result.full_track_duration_seconds);
+                    sessionState.duration = formatTime(seconds);
+                    waveformDuration.textContent = formatTime(seconds);
+                }
 
-                        alert(
-                            "Upload failed: " +
-                            e.message
-                        );
-                        attachBtn.classList.remove(
-                            "attached"
-                        );
+                const bpm = result.rhythm?.estimated_bpm;
+                if (Number.isFinite(Number(bpm))) {
+                    sessionState.tempo = `${Number(bpm).toFixed(1)} BPM est.`;
+                }
 
-                        fileStatus.hidden = true;
-                        fileStatus.textContent = "";
+                const key = result.key?.estimated_key;
+                if (key) {
+                    sessionState.key = `${key} est.`;
+                }
+            }
+
+            renderSessionState();
+        }
+
+        function addToolCall(call) {
+            const empty = activityLog.querySelector(".activity-empty");
+            if (empty) empty.remove();
+
+            toolCallCount += 1;
+            toolCount.textContent = `${toolCallCount} ${toolCallCount === 1 ? "call" : "calls"}`;
+
+            const card = document.createElement("div");
+            card.className = "activity-item";
+
+            const header = document.createElement("div");
+            header.className = "activity-header";
+
+            const icon = document.createElement("span");
+            icon.className = "activity-icon";
+            icon.textContent = "⚙";
+
+            const name = document.createElement("span");
+            name.className = "activity-name";
+            name.textContent = call.name;
+
+            header.appendChild(icon);
+            header.appendChild(name);
+
+            const body = document.createElement("div");
+            body.className = "activity-body";
+
+            const inputWrap = document.createElement("div");
+            const inputTitle = document.createElement("div");
+            inputTitle.className = "activity-section-title";
+            inputTitle.textContent = "Inputs";
+            const inputCode = document.createElement("pre");
+            inputCode.className = "activity-code";
+            inputCode.textContent = prettyJson(call.args);
+            inputWrap.appendChild(inputTitle);
+            inputWrap.appendChild(inputCode);
+
+            const outputWrap = document.createElement("div");
+            const outputTitle = document.createElement("div");
+            outputTitle.className = "activity-section-title";
+            outputTitle.textContent = "Output";
+            const outputCode = document.createElement("pre");
+            outputCode.className = "activity-code";
+            outputCode.textContent = prettyJson(call.result);
+            outputWrap.appendChild(outputTitle);
+            outputWrap.appendChild(outputCode);
+
+            body.appendChild(inputWrap);
+            body.appendChild(outputWrap);
+
+            card.appendChild(header);
+            card.appendChild(body);
+
+            activityLog.prepend(card);
+            updateSessionFromToolCall(call);
+        }
+
+        function setAttachButtonState(state) {
+            attachBtn.classList.remove("uploading", "attached");
+
+            if (state === "uploading") {
+                attachBtn.classList.add("uploading");
+                attachBtn.disabled = true;
+                attachBtn.textContent = "Uploading...";
+                return;
+            }
+
+            attachBtn.disabled = false;
+
+            if (state === "attached") {
+                attachBtn.classList.add("attached");
+                attachBtn.textContent = "Replace audio";
+            } else {
+                attachBtn.textContent = "+ Audio";
+            }
+        }
+
+        function showWaveformArea(filename) {
+            waveformEmpty.hidden = true;
+            waveformEmpty.style.display = "none";
+
+            waveformContent.hidden = false;
+            waveformContent.style.display = "flex";
+
+            waveformFilename.textContent = filename;
+            trackState.textContent = "Audio loaded";
+        }
+
+        async function drawWaveformFromFile(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            const audioContext = new AudioContextClass();
+
+            try {
+                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+                const rawData = audioBuffer.getChannelData(0);
+
+                const samples = 260;
+                const blockSize = Math.max(1, Math.floor(rawData.length / samples));
+                const values = [];
+
+                for (let i = 0; i < samples; i++) {
+                    const start = i * blockSize;
+                    const end = Math.min(start + blockSize, rawData.length);
+                    let sum = 0;
+
+                    for (let j = start; j < end; j++) {
+                        sum += Math.abs(rawData[j]);
                     }
 
-                    attachBtn.disabled = false;
-                },
-            );
-            function removeEmptyState() {
-                const emptyState =
-                    document.getElementById("empty-state");
-
-                if (emptyState) {
-                    emptyState.remove();
-                }
-            }
-
-
-            function renderMarkdown(element, text) {
-                const rawHtml = marked.parse(
-                    text || "",
-                    {
-                        gfm: true,
-                        breaks: true,
-                    },
-                );
-
-                element.innerHTML =
-                    DOMPurify.sanitize(rawHtml);
-
-                if (
-                    typeof renderMathInElement === "function"
-                ) {
-                    renderMathInElement(
-                        element,
-                        {
-                            delimiters: [
-                                {
-                                    left: "$$",
-                                    right: "$$",
-                                    display: true,
-                                },
-                                {
-                                    left: "$",
-                                    right: "$",
-                                    display: false,
-                                },
-                            ],
-                            throwOnError: false,
-                        },
-                    );
-                }
-            }
-
-
-            function addMessage(
-                role,
-                text,
-                isLoading = false,
-            ) {
-                removeEmptyState();
-
-                const div =
-                    document.createElement("div");
-
-                div.className =
-                    "msg " +
-                    (role === "you"
-                        ? "user"
-                        : "assistant") +
-                    (isLoading ? " loading" : "");
-
-                const roleDiv =
-                    document.createElement("div");
-
-                roleDiv.className = "role";
-                roleDiv.textContent = role;
-
-                const contentDiv =
-                    document.createElement("div");
-
-                contentDiv.className = "content";
-
-                if (
-                    role === "assistant" &&
-                    !isLoading
-                ) {
-                    renderMarkdown(
-                        contentDiv,
-                        text,
-                    );
-                } else {
-                    contentDiv.textContent = text;
+                    values.push(sum / Math.max(1, end - start));
                 }
 
-                div.appendChild(roleDiv);
-                div.appendChild(contentDiv);
+                const max = Math.max(...values, 0.000001);
+                const normalized = values.map((value) => value / max);
 
-                messages.appendChild(div);
+                const canvas = waveformCanvas;
+                const ctx = canvas.getContext("2d");
+                const width = canvas.width;
+                const height = canvas.height;
 
-                messages.scrollTop =
-                    messages.scrollHeight;
+                ctx.clearRect(0, 0, width, height);
+                ctx.fillStyle = "#090e14";
+                ctx.fillRect(0, 0, width, height);
 
-                return div;
-            }
-            function prettyJson(value) {
-                try {
-                    const parsed =
-                        typeof value === "string"
-                            ? JSON.parse(value)
-                            : value;
-
-                    return JSON.stringify(
-                        parsed,
-                        null,
-                        2,
-                    );
-                } catch {
-                    return String(value);
+                // Subtle horizontal grid.
+                ctx.strokeStyle = "rgba(76, 156, 255, 0.09)";
+                ctx.lineWidth = 1;
+                for (const fraction of [0.25, 0.5, 0.75]) {
+                    const y = height * fraction;
+                    ctx.beginPath();
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(width, y);
+                    ctx.stroke();
                 }
+
+                // Center line.
+                ctx.strokeStyle = "rgba(137, 152, 170, 0.2)";
+                ctx.beginPath();
+                ctx.moveTo(0, height / 2);
+                ctx.lineTo(width, height / 2);
+                ctx.stroke();
+
+                const barWidth = width / normalized.length;
+                ctx.fillStyle = "#82ef63";
+
+                normalized.forEach((value, index) => {
+                    const x = index * barWidth;
+                    const barHeight = Math.max(2, value * height * 0.76);
+                    const y = (height - barHeight) / 2;
+                    ctx.fillRect(x, y, Math.max(1.5, barWidth - 1.2), barHeight);
+                });
+
+                sessionState.duration = formatTime(audioBuffer.duration);
+                waveformDuration.textContent = formatTime(audioBuffer.duration);
+                renderSessionState();
+            } finally {
+                await audioContext.close();
             }
+        }
 
+        attachBtn.addEventListener("click", function () {
+            audioFileInput.click();
+        });
 
-            function addToolCall(call, beforeNode) {
-                const div = document.createElement("div");
-                div.className = "tool-debug";
+        audioFileInput.addEventListener("change", async function () {
+            const file = audioFileInput.files[0];
+            if (!file) return;
 
-                const args = prettyJson(call.args);
-                const result = prettyJson(call.result);
+            setAttachButtonState("uploading");
 
-                div.textContent =
-                    "⚙ TOOL USED: " + call.name +
-                    "\n\nINPUTS\n" +
-                    args +
-                    "\n\nOUTPUT\n" +
-                    result;
+            const formData = new FormData();
+            formData.append("file", file);
 
-                messages.insertBefore(div, beforeNode);
-            }
+            try {
+                const res = await fetch("/upload-audio", {
+                    method: "POST",
+                    body: formData,
+                });
 
-            async function send() {
-                const text = userInput.value.trim();
-                if (!text) return;
+                const data = await res.json();
 
-                userInput.value = "";
-                userInput.style.height = "auto";
-                sendBtn.disabled = true;
-                addMessage("you", text);
-                const loading = addMessage("assistant", "Thinking...", true);
+                if (!res.ok) {
+                    throw new Error(data.detail || "Audio upload failed");
+                }
+
+                audioFileId = data.audio_file_id;
+                audioFileName = data.filename;
+
+                setAttachButtonState("attached");
+
+                fileStatus.hidden = false;
+                fileStatus.textContent = `Attached: ${audioFileName}`;
+
+                sessionState.track = audioFileName;
+                sessionState.tempo = "—";
+                sessionState.key = "—";
+                renderSessionState();
+
+                showWaveformArea(audioFileName);
+
+                if (currentAudioObjectUrl) {
+                    URL.revokeObjectURL(currentAudioObjectUrl);
+                }
+
+                currentAudioObjectUrl = URL.createObjectURL(file);
+                audioPlayer.src = currentAudioObjectUrl;
 
                 try {
-                    const res = await fetch("/chat", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            message: text,
-                            session_id: sessionId,
-                            audio_file_id: audioFileId,
-                        }),
-                    });
-                    const data = await res.json();
-                    sessionId = data.session_id;
-
-                    // Show each tool the harness ran, above the assistant's answer
-                    for (const call of data.tool_calls || []) {
-                        addToolCall(
-                            call,
-                            loading,
-                        );
-                    }
-                    const responseContent =
-                        loading.querySelector(
-                            ".content"
-                        );
-
-                    renderMarkdown(
-                        responseContent,
-                        data.response,
-                    );
-                    loading.classList.remove("loading");
-                } catch (e) {
-                    loading.querySelector(".content").textContent =
-                        "Error: " + e.message;
-                    loading.classList.remove("loading");
+                    await drawWaveformFromFile(file);
+                } catch (waveformError) {
+                    console.error("Waveform render failed:", waveformError);
+                    waveformDuration.textContent = "preview unavailable";
                 }
-                sendBtn.disabled = false;
+            } catch (e) {
+                audioFileId = null;
+                audioFileName = null;
+                setAttachButtonState("empty");
+                fileStatus.hidden = true;
+                fileStatus.textContent = "";
+                alert("Upload failed: " + e.message);
+            }
+        });
+
+        document.querySelectorAll(".quick-action").forEach((button) => {
+            button.addEventListener("click", function () {
+                userInput.value = this.dataset.prompt || "";
                 userInput.focus();
+                userInput.style.height = "auto";
+                userInput.style.height = Math.min(userInput.scrollHeight, 130) + "px";
+            });
+        });
+
+        async function send() {
+            const text = userInput.value.trim();
+            if (!text) return;
+
+            userInput.value = "";
+            userInput.style.height = "auto";
+            sendBtn.disabled = true;
+
+            addMessage("you", text);
+            const loading = addMessage("assistant", "Thinking...", true);
+
+            try {
+                const res = await fetch("/chat", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        message: text,
+                        session_id: sessionId,
+                        audio_file_id: audioFileId,
+                    }),
+                });
+
+                const data = await res.json();
+
+                if (!res.ok) {
+                    throw new Error(data.detail || data.response || "Chat request failed");
+                }
+
+                sessionId = data.session_id;
+
+                for (const call of data.tool_calls || []) {
+                    addToolCall(call);
+                }
+
+                const responseContent = loading.querySelector(".content");
+                renderMarkdown(responseContent, data.response);
+                loading.classList.remove("loading");
+                messages.scrollTop = messages.scrollHeight;
+            } catch (e) {
+                loading.querySelector(".content").textContent = "Error: " + e.message;
+                loading.classList.remove("loading");
             }
 
-            sendBtn.addEventListener("click", send);
-            userInput.addEventListener("keydown",function (e) {
-                if (
-                    e.key === "Enter" &&
-                    !e.shiftKey
-                ) {
-                    e.preventDefault();
-                    send();
-                }
-            });
-            userInput.addEventListener("input",function () {
-                userInput.style.height = "auto";
-
-                userInput.style.height = Math.min(
-                    userInput.scrollHeight,
-                    140,
-                ) + "px";
-            });
+            sendBtn.disabled = false;
             userInput.focus();
-        </script>
-    </body>
+        }
+
+        sendBtn.addEventListener("click", send);
+
+        userInput.addEventListener("keydown", function (e) {
+            if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                send();
+            }
+        });
+
+        userInput.addEventListener("input", function () {
+            userInput.style.height = "auto";
+            userInput.style.height = Math.min(userInput.scrollHeight, 130) + "px";
+        });
+
+        renderSessionState();
+        userInput.focus();
+    </script>
+</body>
 </html>
