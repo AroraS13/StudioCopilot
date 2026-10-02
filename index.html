@@ -172,6 +172,28 @@
             box-shadow: 0 0 8px rgba(130, 239, 99, 0.55);
         }
 
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        #new-session-btn {
+            padding: 6px 11px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel-raised);
+            color: #c6d2df;
+            font-size: 0.72rem;
+            cursor: pointer;
+            transition: 120ms ease;
+        }
+
+        #new-session-btn:hover:not(:disabled) {
+            border-color: #3a4b5e;
+            color: var(--text);
+        }
+
         /* ---------- Workspace ---------- */
 
         #workspace {
@@ -208,11 +230,29 @@
             flex: 0 0 auto;
         }
 
+        /* Track View spans the top row at a fixed height; Production Notes and
+           the Production Plan share the remaining height and scroll internally. */
         #main {
             display: grid;
-            grid-template-rows: 280px minmax(0, 1fr);
+            grid-template-columns: minmax(0, 1fr) 320px;
+            grid-template-rows: 328px minmax(0, 1fr);
             gap: 14px;
             overflow: hidden;
+        }
+
+        #waveform-panel {
+            grid-column: 1 / -1;
+            grid-row: 1;
+        }
+
+        .conversation-panel {
+            grid-column: 1;
+            grid-row: 2;
+        }
+
+        #plan-panel {
+            grid-column: 2;
+            grid-row: 2;
         }
 
         .panel {
@@ -402,6 +442,7 @@
         #sidebar::-webkit-scrollbar,
         #activity-log::-webkit-scrollbar,
         #messages::-webkit-scrollbar,
+        #plan-body::-webkit-scrollbar,
         .activity-code::-webkit-scrollbar {
             width: 8px;
             height: 8px;
@@ -410,6 +451,7 @@
         #sidebar::-webkit-scrollbar-thumb,
         #activity-log::-webkit-scrollbar-thumb,
         #messages::-webkit-scrollbar-thumb,
+        #plan-body::-webkit-scrollbar-thumb,
         .activity-code::-webkit-scrollbar-thumb {
             background: #334256;
             border-radius: 999px;
@@ -418,6 +460,7 @@
         #sidebar::-webkit-scrollbar-track,
         #activity-log::-webkit-scrollbar-track,
         #messages::-webkit-scrollbar-track,
+        #plan-body::-webkit-scrollbar-track,
         .activity-code::-webkit-scrollbar-track {
             background: transparent;
         }
@@ -493,35 +536,420 @@
             flex: 0 0 auto;
         }
 
-        #selection-chip {
-            display: inline-flex;
+        /* ---------- Insight strip (track analysis + selected region) ---------- */
+
+        .insight-strip {
+            flex: 0 0 64px;
+            height: 64px;
+            margin-top: 8px;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+            gap: 10px;
+        }
+
+        .insight-cell {
+            min-width: 0;
+            padding: 7px 10px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 4px;
+            overflow: hidden;
+            border: 1px solid var(--border-soft);
+            border-radius: 10px;
+            background: #0c1219;
+        }
+
+        .insight-cell.has-selection {
+            border-color: rgba(76, 156, 255, 0.32);
+        }
+
+        .insight-head {
+            min-width: 0;
+            min-height: 20px;
+            display: flex;
             align-items: center;
-            gap: 7px;
-            padding: 2px 3px 2px 9px;
-            border: 1px solid rgba(76, 156, 255, 0.35);
-            border-radius: 999px;
-            background: rgba(76, 156, 255, 0.1);
+            gap: 8px;
+        }
+
+        .section-label {
+            flex: 0 0 auto;
+            color: var(--muted-2);
+            font-size: 0.6rem;
+            font-weight: 760;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+
+        .insight-tag {
+            min-width: 0;
+            color: var(--muted-2);
+            font-size: 0.64rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .insight-tag.measured {
+            color: rgba(130, 239, 99, 0.8);
+        }
+
+        #selection-range {
+            min-width: 0;
             color: #a9cdff;
-            font-size: 0.69rem;
+            font-size: 0.74rem;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .inspector-actions {
+            margin-left: auto;
+            display: flex;
+            flex: 0 0 auto;
+            gap: 5px;
+        }
+
+        .inspector-actions[hidden] {
+            display: none !important;
+        }
+
+        .mini-btn {
+            padding: 2px 8px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--panel-soft);
+            color: #c6d2df;
+            font-size: 0.64rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 120ms ease;
+            white-space: nowrap;
+        }
+
+        .mini-btn:hover:not(:disabled) {
+            border-color: #3a4b5e;
+            color: var(--text);
+        }
+
+        .mini-btn.primary {
+            border-color: var(--green-border);
+            background: var(--green-soft);
+            color: var(--green);
+        }
+
+        .metric-row {
+            min-width: 0;
+            display: flex;
+            gap: 16px;
+            overflow: hidden;
+        }
+
+        .metric {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .metric[hidden] {
+            display: none;
+        }
+
+        .metric-label {
+            color: var(--muted-2);
+            font-size: 0.55rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        .metric-value {
+            color: var(--text);
+            font-size: 0.76rem;
             font-variant-numeric: tabular-nums;
             white-space: nowrap;
         }
 
-        #selection-chip[hidden] {
-            display: none !important;
+        .metric-value.empty {
+            color: var(--muted-2);
         }
 
-        #clear-selection-btn {
-            padding: 2px 8px;
-            border-radius: 999px;
-            background: rgba(76, 156, 255, 0.14);
-            color: #cfe2ff;
+        .insight-hint {
+            color: var(--muted-2);
+            font-size: 0.7rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* ---------- Production Plan ---------- */
+
+        #plan-panel {
+            min-height: 0;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #plan-body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #334256 transparent;
+        }
+
+        .plan-section {
+            padding: 10px 13px 11px;
+            border-bottom: 1px solid var(--border-soft);
+        }
+
+        .plan-section:last-child {
+            border-bottom: 0;
+        }
+
+        .plan-heading {
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .plan-count {
+            color: var(--muted-2);
             font-size: 0.64rem;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .plan-goal {
+            color: #eef4fa;
+            font-size: 0.82rem;
+            line-height: 1.45;
+        }
+
+        .plan-empty {
+            color: var(--muted-2);
+            font-size: 0.74rem;
+            line-height: 1.45;
+        }
+
+        .plan-list {
+            list-style: none;
+            display: grid;
+            gap: 3px;
+        }
+
+        .plan-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            padding: 5px 6px;
+            margin: 0 -6px;
+            border-radius: 7px;
+            color: #d8e2ec;
+            font-size: 0.76rem;
+            line-height: 1.42;
+        }
+
+        button.plan-item {
+            width: calc(100% + 12px);
+            background: transparent;
+            text-align: left;
             cursor: pointer;
         }
 
-        #clear-selection-btn:hover {
-            background: rgba(76, 156, 255, 0.26);
+        button.plan-item:hover,
+        .plan-item.active {
+            background: rgba(130, 239, 99, 0.07);
+        }
+
+        .plan-item.stale {
+            color: var(--muted);
+        }
+
+        .plan-item-main {
+            min-width: 0;
+            flex: 1 1 auto;
+        }
+
+        .plan-item-meta {
+            margin-top: 2px;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .finding-time {
+            color: var(--green);
+            font-size: 0.68rem;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .plan-item.stale .finding-time {
+            color: var(--muted-2);
+        }
+
+        .plan-tag {
+            padding: 0 5px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--muted);
+            font-size: 0.58rem;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .plan-tag.measured {
+            border-color: rgba(56, 189, 196, 0.35);
+            color: #8fe3e6;
+        }
+
+        .plan-bullet {
+            flex: 0 0 auto;
+            width: 5px;
+            height: 5px;
+            margin-top: 7px;
+            border-radius: 50%;
+            background: var(--blue);
+        }
+
+        .next-move input {
+            flex: 0 0 auto;
+            margin-top: 3px;
+            accent-color: var(--green);
+            cursor: pointer;
+        }
+
+        .next-move-text {
+            min-width: 0;
+            flex: 1 1 auto;
+            padding: 0;
+            background: transparent;
+            color: inherit;
+            font-size: inherit;
+            line-height: inherit;
+            text-align: left;
+            cursor: pointer;
+        }
+
+        .next-move-text:hover {
+            color: var(--green);
+        }
+
+        .next-move.done .next-move-text {
+            color: var(--muted-2);
+            text-decoration: line-through;
+        }
+
+        .reference-card {
+            padding: 9px 10px;
+            border: 1px solid var(--border-soft);
+            border-radius: 9px;
+            background: #0c1219;
+        }
+
+        .ref-title {
+            color: #eef4fa;
+            font-size: 0.84rem;
+            font-weight: 680;
+        }
+
+        .ref-artist {
+            color: #c6d2df;
+            font-size: 0.76rem;
+        }
+
+        .ref-meta {
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 0.7rem;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .ref-foot {
+            margin-top: 7px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            font-size: 0.66rem;
+        }
+
+        .ref-badge {
+            color: var(--green);
+            font-weight: 650;
+        }
+
+        .ref-foot a {
+            color: #7db8ff;
+            text-decoration: none;
+        }
+
+        .arrangement-meta {
+            margin-bottom: 7px;
+            color: #c6d2df;
+            font-size: 0.72rem;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .arrangement-bar {
+            height: 30px;
+            display: flex;
+            overflow: hidden;
+            border: 1px solid var(--border-soft);
+            border-radius: 7px;
+            background: #0c1219;
+        }
+
+        .arrangement-segment {
+            min-width: 0;
+            flex-basis: 0;
+            display: flex;
+            align-items: center;
+            padding: 0;
+            overflow: hidden;
+            box-shadow: inset 1px 0 0 rgba(8, 11, 16, 0.85);
+            color: #dce7f3;
+            font-size: 0.62rem;
+            white-space: nowrap;
+            cursor: default;
+        }
+
+        .arrangement-segment:first-child {
+            box-shadow: none;
+        }
+
+        .arrangement-segment:nth-child(4n + 1) { background: rgba(76, 156, 255, 0.22); }
+        .arrangement-segment:nth-child(4n + 2) { background: rgba(56, 189, 196, 0.2); }
+        .arrangement-segment:nth-child(4n + 3) { background: rgba(138, 156, 255, 0.2); }
+        .arrangement-segment:nth-child(4n + 4) { background: rgba(130, 239, 99, 0.14); }
+
+        .arrangement-segment:hover {
+            filter: brightness(1.35);
+        }
+
+        .arrangement-segment .segment-label {
+            padding: 0 5px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .arrangement-ruler {
+            margin-top: 4px;
+            display: flex;
+            justify-content: space-between;
+            color: var(--muted-2);
+            font-size: 0.6rem;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .arrangement-caption {
+            margin-top: 5px;
+            color: var(--muted-2);
+            font-size: 0.64rem;
         }
 
         /* Waveform, spectrogram, and overlay share this exact rectangle so
@@ -1012,7 +1440,61 @@
 
         /* ---------- Responsive ---------- */
 
+        @media (max-width: 1180px) {
+            #main {
+                grid-template-columns: minmax(0, 1fr) 280px;
+            }
+
+            .insight-strip {
+                grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+            }
+
+            .metric-row {
+                gap: 11px;
+            }
+
+            .wide-only,
+            .insight-cell.has-selection .section-label {
+                display: none;
+            }
+        }
+
         @media (max-width: 980px) {
+            .wide-only,
+            .insight-cell.has-selection .section-label {
+                display: inline;
+            }
+
+            #waveform-panel {
+                order: 1;
+            }
+
+            #plan-panel {
+                order: 2;
+                flex: 0 0 auto;
+                height: auto;
+                max-height: 380px;
+            }
+
+            .conversation-panel {
+                order: 3;
+            }
+
+            .insight-strip {
+                flex: 0 0 auto;
+                height: auto;
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .insight-cell {
+                min-height: 60px;
+            }
+
+            .metric-row {
+                flex-wrap: wrap;
+                row-gap: 4px;
+            }
+
             body {
                 overflow: auto;
             }
@@ -1132,9 +1614,16 @@
                 </div>
             </div>
 
-            <div class="header-status">
-                <span class="status-dot"></span>
-                <span>Agent ready</span>
+            <div class="header-actions">
+                <div class="header-status">
+                    <span class="status-dot"></span>
+                    <span>Agent ready</span>
+                </div>
+                <button
+                    id="new-session-btn"
+                    type="button"
+                    title="Start a fresh session: new conversation and Production Plan. The loaded audio stays."
+                >New session</button>
             </div>
         </header>
 
@@ -1176,32 +1665,7 @@
 
                 <section class="panel">
                     <div class="panel-title">Quick Actions</div>
-                    <div id="quick-actions">
-                        <button
-                            class="quick-action"
-                            data-prompt="Analyze this track. Give me the estimated BPM and key, then explain how the energy changes from beginning to end."
-                        >Analyze track</button>
-
-                        <button
-                            class="quick-action"
-                            data-prompt="Compare 0:20-0:45 against 0:45-1:10. Which region is more energetic, and what measurements support that?"
-                        >Compare sections</button>
-
-                        <button
-                            class="quick-action"
-                            data-prompt="Build me a roughly 3-minute arrangement for this track."
-                        >Build arrangement</button>
-
-                        <button
-                            class="quick-action"
-                            data-prompt="I have an 8-bar guitar loop at 92 BPM in D minor. I’m producing at 124 BPM in F minor. Tell me exactly how to adapt the sample."
-                        >Adapt sample</button>
-
-                        <button
-                            class="quick-action"
-                            data-prompt="How long is &quot;Nights&quot; by Frank Ocean? I want to use the original studio version as a duration reference."
-                        >Reference track</button>
-                    </div>
+                    <div id="quick-actions"></div>
                 </section>
 
                 <section class="panel activity-panel">
@@ -1257,10 +1721,6 @@
                         <div id="waveform-meta">
                             <div id="waveform-filename">No file selected</div>
                             <div class="meta-right">
-                                <div id="selection-chip" hidden>
-                                    <span id="selection-text"></span>
-                                    <button id="clear-selection-btn" type="button">Clear selection</button>
-                                </div>
                                 <div id="waveform-duration">—</div>
                             </div>
                         </div>
@@ -1275,6 +1735,30 @@
                         </div>
 
                         <audio id="audio-player" controls preload="metadata"></audio>
+
+                        <div class="insight-strip">
+                            <div class="insight-cell" id="track-analysis-cell">
+                                <div class="insight-head">
+                                    <span class="section-label">Track Analysis</span>
+                                    <span class="insight-tag" id="track-analysis-tag">Not analyzed yet</span>
+                                </div>
+                                <div class="metric-row" id="track-analysis-metrics"></div>
+                            </div>
+
+                            <div class="insight-cell" id="selection-cell">
+                                <div class="insight-head">
+                                    <span class="section-label">Selected Region</span>
+                                    <span id="selection-range"></span>
+                                    <div class="inspector-actions" id="inspector-actions" hidden>
+                                        <button class="mini-btn primary" type="button" data-inspector="analyze">Analyze</button>
+                                        <button class="mini-btn" type="button" data-inspector="compare">Compare</button>
+                                        <button class="mini-btn" type="button" data-inspector="ask" title="Ask Copilot about this region">Ask<span class="wide-only"> Copilot</span></button>
+                                        <button class="mini-btn" type="button" data-inspector="clear">Clear</button>
+                                    </div>
+                                </div>
+                                <div class="metric-row" id="selection-metrics"></div>
+                            </div>
+                        </div>
                     </div>
                 </section>
 
@@ -1292,6 +1776,54 @@
                                 analyze audio, adapt samples, build arrangements, and work from
                                 reference-track metadata while exposing every tool it uses.
                             </p>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="panel" id="plan-panel">
+                    <div class="panel-title">
+                        <span>Production Plan</span>
+                        <span class="panel-title-badge" id="plan-badge">Empty</span>
+                    </div>
+
+                    <div id="plan-body">
+                        <div class="plan-section">
+                            <div class="plan-heading"><span class="section-label">Goal</span></div>
+                            <div id="plan-goal"></div>
+                        </div>
+
+                        <div class="plan-section">
+                            <div class="plan-heading">
+                                <span class="section-label">Key Findings</span>
+                                <span class="plan-count" id="plan-findings-count"></span>
+                            </div>
+                            <div id="plan-findings"></div>
+                        </div>
+
+                        <div class="plan-section">
+                            <div class="plan-heading">
+                                <span class="section-label">Decisions</span>
+                                <span class="plan-count" id="plan-decisions-count"></span>
+                            </div>
+                            <div id="plan-decisions"></div>
+                        </div>
+
+                        <div class="plan-section">
+                            <div class="plan-heading">
+                                <span class="section-label">Next Moves</span>
+                                <span class="plan-count" id="plan-next-count"></span>
+                            </div>
+                            <div id="plan-next"></div>
+                        </div>
+
+                        <div class="plan-section">
+                            <div class="plan-heading"><span class="section-label">Reference</span></div>
+                            <div id="reference-view"></div>
+                        </div>
+
+                        <div class="plan-section">
+                            <div class="plan-heading"><span class="section-label">Arrangement</span></div>
+                            <div id="arrangement-view"></div>
                         </div>
                     </div>
                 </section>
@@ -1355,9 +1887,30 @@
         const vizTooltip = document.getElementById("viz-tooltip");
         const viewButtons = document.querySelectorAll(".view-btn");
         const clearOverlaysBtn = document.getElementById("clear-overlays-btn");
-        const selectionChip = document.getElementById("selection-chip");
-        const selectionText = document.getElementById("selection-text");
-        const clearSelectionBtn = document.getElementById("clear-selection-btn");
+
+        const quickActionsEl = document.getElementById("quick-actions");
+        const newSessionBtn = document.getElementById("new-session-btn");
+        const emptyStateTemplate = document.getElementById("empty-state").cloneNode(true);
+
+        const trackAnalysisTag = document.getElementById("track-analysis-tag");
+        const trackAnalysisMetrics = document.getElementById("track-analysis-metrics");
+        const selectionCell = document.getElementById("selection-cell");
+        const selectionRange = document.getElementById("selection-range");
+        const selectionMetrics = document.getElementById("selection-metrics");
+        const inspectorActions = document.getElementById("inspector-actions");
+
+        const planBadge = document.getElementById("plan-badge");
+        const planGoal = document.getElementById("plan-goal");
+        const planFindings = document.getElementById("plan-findings");
+        const planFindingsCount = document.getElementById("plan-findings-count");
+        const planDecisions = document.getElementById("plan-decisions");
+        const planDecisionsCount = document.getElementById("plan-decisions-count");
+        const planNext = document.getElementById("plan-next");
+        const planNextCount = document.getElementById("plan-next-count");
+        const referenceView = document.getElementById("reference-view");
+        const arrangementView = document.getElementById("arrangement-view");
+
+        const DEFAULT_INPUT_PLACEHOLDER = userInput.placeholder;
 
         const sessionTrack = document.getElementById("session-track");
         const sessionDuration = document.getElementById("session-duration");
@@ -1420,6 +1973,17 @@
         let analysisLabelCount = 0;
         let pointerGesture = null;
         let playheadFrame = null;
+
+        // Last Production Plan fetched from the backend (public project state).
+        let projectState = null;
+        // Successful analyze_audio_track results, used for measured summaries.
+        let analysisResults = [];
+        let activeFindingId = null;
+        let chatBusy = false;
+
+        const MAX_ANALYSIS_RESULTS = 40;
+        const RANGE_MATCH_TOLERANCE_SECONDS = 0.25;
+        const MAX_QUICK_ACTIONS = 5;
 
         function formatTime(seconds) {
             const value = Number(seconds);
@@ -2035,8 +2599,10 @@
             visualState.structureMarkers = [];
             visualState.hoveredMarker = null;
             analysisLabelCount = 0;
+            activeFindingId = null;
             hideTooltip();
             renderVisualizationOverlay();
+            safeRender(renderProductionPlan);
         }
 
         // ---------- Selection ----------
@@ -2056,14 +2622,8 @@
         }
 
         function updateSelectionUI() {
-            const selection = visualState.selection;
-            selectionChip.hidden = !selection;
-
-            if (selection) {
-                selectionText.textContent =
-                    `Selected: ${formatPreciseTime(selection.start_seconds)} – ${formatPreciseTime(selection.end_seconds)}`;
-            }
-
+            safeRender(renderSelectionInspector);
+            safeRender(renderQuickActions);
             updateFileStatus();
         }
 
@@ -2408,12 +2968,767 @@
             if (result.audio_file_id && result.audio_file_id !== audioFileId) return;
 
             if (call.name === "analyze_audio_track") {
+                recordAnalysisResult(args, result);
                 applyAnalysisResult(args, result);
             } else {
                 applyFocusResult(result);
             }
 
             renderVisualizationOverlay();
+        }
+
+        // ---------- Workspace helpers ----------
+
+        function safeRender(fn) {
+            try {
+                fn();
+            } catch (error) {
+                console.warn(`${fn.name} skipped:`, error);
+            }
+        }
+
+        function renderWorkspace() {
+            [
+                renderProductionPlan,
+                renderReferenceCard,
+                renderArrangementTimeline,
+                renderAnalysisSummary,
+                renderSelectionInspector,
+                renderQuickActions,
+            ].forEach(safeRender);
+        }
+
+        function el(tag, className, text) {
+            const node = document.createElement(tag);
+            if (className) node.className = className;
+            if (text !== undefined && text !== null) node.textContent = text;
+            return node;
+        }
+
+        function roundTenth(seconds) {
+            return Math.round(seconds * 10) / 10;
+        }
+
+        function describeRange(start, end) {
+            return `${formatPreciseTime(start)}–${formatPreciseTime(end)} (${start.toFixed(1)}–${end.toFixed(1)} s)`;
+        }
+
+        function truncate(text, max) {
+            return text.length > max ? text.slice(0, max - 1).trimEnd() + "…" : text;
+        }
+
+        function fillComposer(text) {
+            userInput.value = text;
+            userInput.style.height = "auto";
+            userInput.style.height = Math.min(userInput.scrollHeight, 130) + "px";
+            userInput.focus();
+            userInput.setSelectionRange(text.length, text.length);
+        }
+
+        function formatDb(value) {
+            return `${value.toFixed(1)} dBFS`;
+        }
+
+        function formatHz(value) {
+            return value >= 1000 ? `${(value / 1000).toFixed(2)} kHz` : `${Math.round(value)} Hz`;
+        }
+
+        function formatRate(value) {
+            return `${value.toFixed(2)}/s`;
+        }
+
+        // Read a numeric field from a tool result; null when absent or malformed.
+        function measured(result, path, format) {
+            let value = result;
+            for (const key of path) {
+                value = value && typeof value === "object" ? value[key] : undefined;
+            }
+            const number = toFiniteNumber(value);
+            return number === null ? null : format(number);
+        }
+
+        // Metrics are listed by importance, so trailing ones are hidden first when space runs out.
+        function fitMetricRow(row) {
+            const metrics = [...row.querySelectorAll(".metric")];
+            metrics.forEach((metric) => {
+                metric.hidden = false;
+            });
+            for (let i = metrics.length - 1; i > 0 && row.scrollWidth > row.clientWidth; i--) {
+                metrics[i].hidden = true;
+            }
+        }
+
+        function renderMetrics(container, metrics) {
+            container.replaceChildren(
+                ...metrics.map(({ label, value }) => {
+                    const metric = el("div", "metric");
+                    metric.append(
+                        el("span", "metric-label", label),
+                        el("span", value === null ? "metric-value empty" : "metric-value", value ?? "—")
+                    );
+                    return metric;
+                })
+            );
+            fitMetricRow(container);
+        }
+
+        // ---------- Measured analysis results ----------
+
+        function recordAnalysisResult(args, result) {
+            const range = result.analysis_range && typeof result.analysis_range === "object"
+                ? result.analysis_range
+                : {};
+            const start = toFiniteNumber(range.start_seconds);
+            const end = toFiniteNumber(range.end_seconds);
+            if (start === null || end === null || end <= start) return;
+
+            const fullDuration = toFiniteNumber(result.full_track_duration_seconds);
+            const requestedRange =
+                toFiniteNumber(args.start_seconds) !== null || toFiniteNumber(args.end_seconds) !== null;
+            const coversTrack = fullDuration !== null && start <= 0.5 && end >= fullDuration - 0.5;
+
+            analysisResults.push({
+                audio_file_id: audioFileId,
+                start_seconds: start,
+                end_seconds: end,
+                isFullTrack: !requestedRange || coversTrack,
+                result,
+            });
+            analysisResults = analysisResults.slice(-MAX_ANALYSIS_RESULTS);
+        }
+
+        function latestAnalysis(predicate) {
+            for (let i = analysisResults.length - 1; i >= 0; i--) {
+                const entry = analysisResults[i];
+                if (entry.audio_file_id === audioFileId && predicate(entry)) return entry;
+            }
+            return null;
+        }
+
+        function getTrackAnalysis() {
+            return audioFileId ? latestAnalysis((entry) => entry.isFullTrack) : null;
+        }
+
+        function getSelectionAnalysis(selection) {
+            if (!selection || !audioFileId) return null;
+            return latestAnalysis(
+                (entry) =>
+                    Math.abs(entry.start_seconds - selection.start_seconds) <= RANGE_MATCH_TOLERANCE_SECONDS &&
+                    Math.abs(entry.end_seconds - selection.end_seconds) <= RANGE_MATCH_TOLERANCE_SECONDS
+            );
+        }
+
+        function renderAnalysisSummary() {
+            const entry = getTrackAnalysis();
+            const result = entry ? entry.result : null;
+            const key = typeof result?.key?.estimated_key === "string" ? result.key.estimated_key : null;
+
+            trackAnalysisTag.textContent = entry ? "Full track · measured" : "Not analyzed yet";
+            trackAnalysisTag.classList.toggle("measured", Boolean(entry));
+
+            renderMetrics(trackAnalysisMetrics, [
+                { label: "Tempo est.", value: measured(result, ["rhythm", "estimated_bpm"], (v) => `${v.toFixed(1)} BPM`) },
+                { label: "Key est.", value: key },
+                { label: "Median RMS", value: measured(result, ["dynamics", "median_rms_dbfs"], formatDb) },
+                { label: "Peak", value: measured(result, ["dynamics", "peak_dbfs"], formatDb) },
+                { label: "Centroid", value: measured(result, ["spectral", "median_spectral_centroid_hz"], formatHz) },
+                { label: "Onsets", value: measured(result, ["rhythm", "onset_density_per_second"], formatRate) },
+            ]);
+        }
+
+        // ---------- Selected Region inspector ----------
+
+        function comparisonRegion(selection) {
+            const length = selection.end_seconds - selection.start_seconds;
+
+            if (selection.start_seconds - length >= 0) {
+                return {
+                    start_seconds: roundTenth(selection.start_seconds - length),
+                    end_seconds: selection.start_seconds,
+                    relation: "immediately before",
+                };
+            }
+
+            const end = Math.min(getTrackDuration(), selection.end_seconds + length);
+            if (end - selection.end_seconds >= 1) {
+                return {
+                    start_seconds: selection.end_seconds,
+                    end_seconds: roundTenth(end),
+                    relation: "immediately after",
+                };
+            }
+
+            return null;
+        }
+
+        function comparePrompt(selection) {
+            const selected = describeRange(selection.start_seconds, selection.end_seconds);
+            const other = comparisonRegion(selection);
+
+            if (!other) {
+                return `Compare the selected region ${selected} with the rest of the track using measured values.`;
+            }
+
+            return (
+                `Compare the selected region ${selected} with the region ${other.relation} it, ` +
+                `${describeRange(other.start_seconds, other.end_seconds)}. ` +
+                "Analyze both exact ranges and explain the measurable differences."
+            );
+        }
+
+        function renderSelectionInspector() {
+            const selection = audioFileId ? visualState.selection : null;
+
+            selectionCell.classList.toggle("has-selection", Boolean(selection));
+            inspectorActions.hidden = !selection;
+            inspectorActions.querySelectorAll("button").forEach((button) => {
+                button.disabled = chatBusy && button.dataset.inspector !== "clear";
+            });
+
+            if (!selection) {
+                userInput.placeholder = DEFAULT_INPUT_PLACEHOLDER;
+                selectionRange.textContent = "";
+                selectionMetrics.replaceChildren(
+                    el("span", "insight-hint", "Drag across the waveform or spectrogram to select a region.")
+                );
+                return;
+            }
+
+            const start = formatPreciseTime(selection.start_seconds);
+            const end = formatPreciseTime(selection.end_seconds);
+            const length = selection.end_seconds - selection.start_seconds;
+
+            userInput.placeholder = `Ask about the selected region (${start}–${end})…`;
+            selectionRange.replaceChildren(
+                `${start} – ${end}`,
+                el("span", "wide-only", ` · ${length.toFixed(1)} s`)
+            );
+
+            const entry = getSelectionAnalysis(selection);
+            if (!entry) {
+                selectionMetrics.replaceChildren(
+                    el("span", "insight-hint", "Not analyzed yet. Analyze to measure this exact range.")
+                );
+                return;
+            }
+
+            const result = entry.result;
+            renderMetrics(selectionMetrics, [
+                { label: "Median RMS", value: measured(result, ["dynamics", "median_rms_dbfs"], formatDb) },
+                { label: "Onsets", value: measured(result, ["rhythm", "onset_density_per_second"], formatRate) },
+                { label: "Centroid", value: measured(result, ["spectral", "median_spectral_centroid_hz"], formatHz) },
+                { label: "Peak", value: measured(result, ["dynamics", "peak_dbfs"], formatDb) },
+            ]);
+        }
+
+        function handleInspectorAction(action) {
+            const selection = visualState.selection;
+            if (!selection) return;
+
+            if (action === "clear") {
+                setSelection(null);
+            } else if (action === "ask") {
+                userInput.focus();
+            } else if (action === "analyze") {
+                send("Analyze the selected region and summarize its measurable characteristics.");
+            } else if (action === "compare") {
+                send(comparePrompt(selection));
+            }
+        }
+
+        // ---------- Production Plan ----------
+
+        function planData() {
+            const state = projectState && typeof projectState === "object" ? projectState : {};
+            const items = (value) =>
+                Array.isArray(value)
+                    ? value.filter((item) => item && typeof item === "object" && typeof item.text === "string")
+                    : [];
+
+            return {
+                goal: typeof state.goal === "string" && state.goal.trim() ? state.goal : null,
+                findings: items(state.findings),
+                decisions: items(state.decisions),
+                nextActions: items(state.next_actions),
+                reference: state.reference && typeof state.reference === "object" ? state.reference : null,
+                arrangement: state.arrangement && typeof state.arrangement === "object" ? state.arrangement : null,
+            };
+        }
+
+        function planList(nodes) {
+            const list = el("ul", "plan-list");
+            for (const node of nodes) {
+                const item = el("li");
+                item.append(node);
+                list.append(item);
+            }
+            return list;
+        }
+
+        function focusFinding(finding, start, end) {
+            visualState.focusedRegions = visualState.focusedRegions.filter((region) => region.source !== "finding");
+            visualState.focusedRegions.push({
+                start_seconds: start,
+                end_seconds: end,
+                label: `Finding ${finding.id}`,
+                reason: finding.text,
+                source: "finding",
+            });
+            activeFindingId = finding.id;
+            renderVisualizationOverlay();
+            safeRender(renderProductionPlan);
+            vizStage.scrollIntoView({ block: "nearest" });
+        }
+
+        function renderFinding(finding) {
+            const start = toFiniteNumber(finding.start_seconds);
+            const end = toFiniteNumber(finding.end_seconds);
+            const hasRange = start !== null && end !== null && end > start;
+            const fromOtherAudio = Boolean(finding.audio_file_id) && finding.audio_file_id !== audioFileId;
+            const clickable = hasRange && Boolean(finding.audio_file_id) && !fromOtherAudio;
+
+            const row = el(clickable ? "button" : "div", "plan-item");
+
+            if (clickable) {
+                row.type = "button";
+                row.title = "Show this range in Track View";
+                row.classList.toggle("active", activeFindingId === finding.id);
+                row.addEventListener("click", () => focusFinding(finding, start, end));
+            } else if (fromOtherAudio) {
+                row.classList.add("stale");
+                row.title = "Measured on an earlier audio upload";
+            }
+
+            const main = el("div", "plan-item-main");
+            const meta = el("div", "plan-item-meta");
+            const isMeasured = finding.source === "measurement";
+
+            if (hasRange) {
+                meta.append(el("span", "finding-time", `${formatPreciseTime(start)}–${formatPreciseTime(end)}`));
+            }
+            meta.append(el("span", isMeasured ? "plan-tag measured" : "plan-tag", isMeasured ? "measured" : "user"));
+            if (fromOtherAudio) meta.append(el("span", "plan-tag", "earlier upload"));
+
+            main.append(el("div", null, finding.text), meta);
+            row.append(el("span", "plan-bullet"), main);
+            return row;
+        }
+
+        async function setNextActionStatus(actionId, status, checkbox) {
+            if (!sessionId) return;
+            checkbox.disabled = true;
+
+            try {
+                const res = await fetch(
+                    `/project-state/${encodeURIComponent(sessionId)}/next-actions/${encodeURIComponent(actionId)}`,
+                    {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ status }),
+                    }
+                );
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                projectState = await res.json();
+            } catch (error) {
+                console.warn("Next move update failed:", error);
+            }
+
+            renderWorkspace();
+        }
+
+        function renderNextMove(action) {
+            const done = action.status === "done";
+            const row = el("div", done ? "plan-item next-move done" : "plan-item next-move");
+
+            const checkbox = el("input");
+            checkbox.type = "checkbox";
+            checkbox.checked = done;
+            checkbox.disabled = !sessionId;
+            checkbox.title = done ? "Mark as not done" : "Mark as done";
+            checkbox.addEventListener("change", () =>
+                setNextActionStatus(action.id, checkbox.checked ? "done" : "pending", checkbox)
+            );
+
+            const text = el("button", "next-move-text", action.text);
+            text.type = "button";
+            text.title = "Continue this with Copilot";
+            text.addEventListener("click", () => fillComposer(`Let's work on this next move: ${action.text}`));
+
+            row.append(checkbox, text);
+            return row;
+        }
+
+        function renderProductionPlan() {
+            const plan = planData();
+            const pending = plan.nextActions.filter((action) => action.status !== "done");
+            const done = plan.nextActions.filter((action) => action.status === "done");
+            const isEmpty =
+                !plan.goal && !plan.findings.length && !plan.decisions.length && !plan.nextActions.length;
+
+            planBadge.textContent = isEmpty
+                ? "Empty"
+                : pending.length
+                    ? `${pending.length} open ${pending.length === 1 ? "move" : "moves"}`
+                    : "Up to date";
+
+            planGoal.replaceChildren(
+                plan.goal
+                    ? el("div", "plan-goal", plan.goal)
+                    : el("div", "plan-empty", "No goal set yet. Tell Copilot what you want this track to achieve.")
+            );
+
+            planFindingsCount.textContent = plan.findings.length ? String(plan.findings.length) : "";
+            planFindings.replaceChildren(
+                plan.findings.length
+                    ? planList(plan.findings.map(renderFinding))
+                    : el("div", "plan-empty", "Measured or user-stated findings will collect here.")
+            );
+
+            planDecisionsCount.textContent = plan.decisions.length ? String(plan.decisions.length) : "";
+            planDecisions.replaceChildren(
+                plan.decisions.length
+                    ? planList(
+                        plan.decisions.map((decision) => {
+                            const row = el("div", "plan-item");
+                            const bullet = el("span", "plan-bullet");
+                            bullet.style.background = "var(--green)";
+                            row.append(bullet, el("div", "plan-item-main", decision.text));
+                            return row;
+                        })
+                    )
+                    : el("div", "plan-empty", "Choices you make about the track will be recorded here.")
+            );
+
+            planNextCount.textContent = plan.nextActions.length ? `${pending.length} open` : "";
+            planNext.replaceChildren(
+                plan.nextActions.length
+                    ? planList([...pending, ...done].map(renderNextMove))
+                    : el("div", "plan-empty", "Concrete next steps will appear here as you work.")
+            );
+        }
+
+        function renderReferenceCard() {
+            const { reference } = planData();
+
+            if (!reference || typeof reference.title !== "string") {
+                referenceView.replaceChildren(
+                    el("div", "plan-empty", "No reference track yet. Ask Copilot to look one up.")
+                );
+                return;
+            }
+
+            const card = el("div", "reference-card");
+            card.append(el("div", "ref-title", reference.title));
+            if (typeof reference.artist === "string") card.append(el("div", "ref-artist", reference.artist));
+
+            const year = typeof reference.first_release_date === "string" ? reference.first_release_date.slice(0, 4) : "";
+            const meta = [reference.duration, reference.release, /^\d{4}$/.test(year) ? year : null].filter(
+                (value) => typeof value === "string" && value
+            );
+            if (meta.length) card.append(el("div", "ref-meta", meta.join(" · ")));
+
+            const foot = el("div", "ref-foot");
+            foot.append(el("span", "ref-badge", "Active reference"));
+
+            if (typeof reference.musicbrainz_url === "string" && reference.musicbrainz_url.startsWith("https://musicbrainz.org/")) {
+                const link = el("a", null, "MusicBrainz ↗");
+                link.href = reference.musicbrainz_url;
+                link.target = "_blank";
+                link.rel = "noopener noreferrer";
+                foot.append(link);
+            }
+
+            card.append(foot);
+            referenceView.replaceChildren(card);
+        }
+
+        function renderArrangementTimeline() {
+            const { arrangement } = planData();
+            const sections = Array.isArray(arrangement?.sections)
+                ? arrangement.sections.filter((section) => section && toFiniteNumber(section.bars) > 0)
+                : [];
+
+            if (!sections.length) {
+                arrangementView.replaceChildren(
+                    el("div", "plan-empty", "No arrangement yet. Build one to see its timeline here.")
+                );
+                return;
+            }
+
+            const totalBars = sections.reduce((sum, section) => sum + Number(section.bars), 0);
+            const bpm = toFiniteNumber(arrangement.bpm);
+            const meta = [];
+            if (bpm !== null) meta.push(`${Number.isInteger(bpm) ? bpm : bpm.toFixed(1)} BPM`);
+            if (typeof arrangement.time_signature === "string") meta.push(arrangement.time_signature);
+            meta.push(`${toFiniteNumber(arrangement.total_bars) ?? totalBars} bars`);
+            if (typeof arrangement.actual_duration === "string") meta.push(arrangement.actual_duration);
+
+            // Segment widths are proportional to the bar counts returned by build_arrangement.
+            const bar = el("div", "arrangement-bar");
+            for (const section of sections) {
+                const bars = Number(section.bars);
+                const name = typeof section.section === "string" && section.section.trim()
+                    ? section.section.trim()
+                    : "Section";
+                const barRange =
+                    toFiniteNumber(section.start_bar) !== null && toFiniteNumber(section.end_bar) !== null
+                        ? `bars ${section.start_bar}–${section.end_bar}`
+                        : null;
+                const time =
+                    typeof section.start_time === "string" && typeof section.end_time === "string"
+                        ? `${section.start_time}–${section.end_time}`
+                        : null;
+
+                const segment = el("div", "arrangement-segment");
+                segment.style.flexGrow = String(bars);
+                segment.dataset.bars = String(bars);
+                segment.dataset.name = name;
+                segment.dataset.short = abbreviateSection(name);
+                segment.title = [name, barRange, `${bars} bars`, time].filter(Boolean).join(" · ");
+                segment.append(el("span", "segment-label", name));
+                bar.append(segment);
+            }
+
+            const ruler = el("div", "arrangement-ruler");
+            ruler.append(
+                el("span", null, "0:00"),
+                el("span", null, typeof arrangement.actual_duration === "string" ? arrangement.actual_duration : `${totalBars} bars`)
+            );
+
+            arrangementView.replaceChildren(
+                el("div", "arrangement-meta", meta.join(" · ")),
+                bar,
+                ruler,
+                el("div", "arrangement-caption", "Planned arrangement · not detected from your audio")
+            );
+
+            requestAnimationFrame(() => {
+                bar.querySelectorAll(".arrangement-segment").forEach((segment) => {
+                    const label = segment.firstChild;
+                    const fits = () => label.scrollWidth <= segment.clientWidth;
+                    label.style.visibility = "visible";
+                    label.textContent = segment.dataset.name;
+                    if (fits()) return;
+                    label.textContent = segment.dataset.short;
+                    if (!fits()) label.style.visibility = "hidden";
+                });
+            });
+        }
+
+        // "verse 2" -> "V2", "Pre-Chorus" -> "PC", "intro" -> "I"
+        function abbreviateSection(name) {
+            const number = (name.match(/\d+$/) || [""])[0];
+            const initials = name
+                .replace(/\d+$/, "")
+                .split(/[\s-]+/)
+                .filter(Boolean)
+                .map((word) => word[0].toUpperCase())
+                .join("");
+            return (initials || name.slice(0, 1)) + number;
+        }
+
+        async function refreshProjectState() {
+            if (!sessionId) {
+                projectState = null;
+                return;
+            }
+
+            try {
+                const res = await fetch(`/project-state/${encodeURIComponent(sessionId)}`);
+                if (res.ok) projectState = await res.json();
+            } catch (error) {
+                console.warn("Project state refresh failed:", error);
+            }
+        }
+
+        // ---------- Contextual Quick Actions ----------
+
+        const BASE_PROMPTS = {
+            analyzeTrack:
+                "Analyze this track. Give me the estimated BPM and key, then explain how the energy changes from beginning to end.",
+            adaptSample:
+                "I have an 8-bar guitar loop at 92 BPM in D minor. I’m producing at 124 BPM in F minor. Tell me exactly how to adapt the sample.",
+            findReference:
+                "How long is \"Nights\" by Frank Ocean? I want to use the original studio version as a duration reference.",
+            buildArrangement: "Build me a roughly 3-minute arrangement at 120 BPM.",
+            buildForTrack: "Build me a roughly 3-minute arrangement for this track.",
+        };
+
+        function strongestTransition(result) {
+            const boundaries = Array.isArray(result?.candidate_structure_boundaries)
+                ? result.candidate_structure_boundaries
+                : [];
+            let best = null;
+
+            for (const boundary of boundaries) {
+                const time = toFiniteNumber(boundary?.time_seconds);
+                const strength = toFiniteNumber(boundary?.change_strength);
+                if (time === null || strength === null) continue;
+                if (!best || strength > best.strength) best = { time, strength };
+            }
+
+            return best;
+        }
+
+        function energyExtremes(result) {
+            const segments = (Array.isArray(result?.energy_profile) ? result.energy_profile : [])
+                .map((segment) => ({
+                    start: toFiniteNumber(segment?.start_seconds),
+                    end: toFiniteNumber(segment?.end_seconds),
+                    rms: toFiniteNumber(segment?.median_rms_dbfs),
+                }))
+                .filter((segment) => segment.start !== null && segment.end !== null && segment.rms !== null);
+
+            if (segments.length < 2) return null;
+
+            const low = segments.reduce((a, b) => (b.rms < a.rms ? b : a));
+            const high = segments.reduce((a, b) => (b.rms > a.rms ? b : a));
+            return low === high || high.rms - low.rms < 0.5 ? null : { low, high };
+        }
+
+        function buildQuickActions() {
+            const actions = [];
+            const add = (label, prompt) => {
+                if (actions.length < MAX_QUICK_ACTIONS && !actions.some((action) => action.label === label)) {
+                    actions.push({ label, prompt });
+                }
+            };
+
+            const plan = planData();
+            const selection = audioFileId ? visualState.selection : null;
+            const trackAnalysis = getTrackAnalysis();
+            const pending = plan.nextActions.filter((action) => action.status !== "done");
+
+            if (selection) {
+                const range = describeRange(selection.start_seconds, selection.end_seconds);
+                add("Analyze selection", `Analyze the selected region ${range} and summarize its measurable characteristics.`);
+                add("Compare selection", comparePrompt(selection));
+                add("Ask about selection", `About the selected region ${range}: `);
+            }
+
+            for (const action of pending.slice(0, 2)) {
+                add(`Next: ${truncate(action.text, 32)}`, `Let's work on this next move: ${action.text}`);
+            }
+
+            if (trackAnalysis) {
+                const result = trackAnalysis.result;
+                const duration = toFiniteNumber(result.full_track_duration_seconds) ?? getTrackDuration();
+                const transition = strongestTransition(result);
+
+                if (transition && duration) {
+                    const before = roundTenth(Math.max(0, transition.time - 8));
+                    const after = roundTenth(Math.min(duration, transition.time + 8));
+                    add(
+                        "Inspect strongest transition",
+                        `Compare the audio just before and after the strongest candidate transition at ${formatPreciseTime(transition.time)}: ` +
+                        `analyze ${describeRange(before, transition.time)} and ${describeRange(transition.time, after)} as exact ranges.`
+                    );
+                }
+
+                const extremes = energyExtremes(result);
+                if (extremes) {
+                    add(
+                        "Compare energy regions",
+                        `Compare the lowest-RMS segment ${describeRange(extremes.low.start, extremes.low.end)} ` +
+                        `with the highest-RMS segment ${describeRange(extremes.high.start, extremes.high.end)}. ` +
+                        "Analyze both exact ranges and explain the measurable differences."
+                    );
+                }
+
+                const bpm = toFiniteNumber(result?.rhythm?.estimated_bpm);
+                if (!plan.arrangement) {
+                    add(
+                        "Build arrangement from this track",
+                        bpm
+                            ? `Build a roughly 3-minute arrangement at this track's estimated ${bpm.toFixed(1)} BPM.`
+                            : BASE_PROMPTS.buildForTrack
+                    );
+                }
+            } else if (audioFileId) {
+                add("Analyze track", BASE_PROMPTS.analyzeTrack);
+                add("Find major transitions", "Analyze this track and show me where the strongest candidate transition is.");
+            }
+
+            if (plan.reference) {
+                const reference = `${plan.reference.title}${plan.reference.duration ? ` (${plan.reference.duration})` : ""}`;
+                add(
+                    plan.arrangement ? "Match reference duration" : "Build arrangement from reference",
+                    plan.arrangement
+                        ? `Adjust the current arrangement so its duration matches my reference, ${reference}.`
+                        : `Build an arrangement that matches the duration of my reference, ${reference}.`
+                );
+            }
+
+            if (plan.arrangement) {
+                const bpm = toFiniteNumber(plan.arrangement.bpm);
+                const at = bpm !== null ? ` ${Number.isInteger(bpm) ? bpm : bpm.toFixed(1)} BPM` : "";
+                add("Shorten arrangement", `Shorten the current${at} arrangement by about 30 seconds, keeping its section order.`);
+                add("Extend arrangement", `Extend the current${at} arrangement by about 30 seconds, keeping its section order.`);
+                add("Adjust arrangement", "Adjust the current arrangement: ");
+            }
+
+            if (!audioFileId) {
+                add("Adapt a sample", BASE_PROMPTS.adaptSample);
+                add("Find a reference track", BASE_PROMPTS.findReference);
+                add("Build an arrangement", BASE_PROMPTS.buildArrangement);
+            } else if (!trackAnalysis && !plan.arrangement) {
+                add("Build arrangement", BASE_PROMPTS.buildForTrack);
+            }
+
+            return actions;
+        }
+
+        function renderQuickActions() {
+            quickActionsEl.replaceChildren(
+                ...buildQuickActions().map(({ label, prompt }) => {
+                    const button = el("button", "quick-action", label);
+                    button.type = "button";
+                    button.title = prompt;
+                    button.dataset.prompt = prompt;
+                    button.addEventListener("click", () => fillComposer(prompt));
+                    return button;
+                })
+            );
+        }
+
+        // ---------- Sessions ----------
+
+        async function startNewSession() {
+            if (chatBusy) return;
+
+            const previousSessionId = sessionId;
+            sessionId = null;
+            projectState = null;
+            analysisResults = [];
+            activeFindingId = null;
+
+            if (previousSessionId) {
+                try {
+                    await fetch(`/clear?session_id=${encodeURIComponent(previousSessionId)}`, { method: "POST" });
+                } catch (error) {
+                    console.warn("Session clear failed:", error);
+                }
+            }
+
+            messages.replaceChildren(emptyStateTemplate.cloneNode(true));
+            activityLog.replaceChildren(
+                el("div", "activity-empty", "Tool calls will appear here with their inputs and outputs.")
+            );
+            toolCallCount = 0;
+            toolCount.textContent = "0 calls";
+
+            sessionState.tempo = "—";
+            sessionState.key = "—";
+            sessionState.reference = "—";
+            sessionState.arrangement = "—";
+            renderSessionState();
+
+            visualState.selection = null;
+            visualState.draftSelection = null;
+            clearOverlays();
+            updateSelectionUI();
+            renderWorkspace();
+            userInput.focus();
         }
 
         // ---------- Wiring ----------
@@ -2426,14 +3741,22 @@
 
         clearOverlaysBtn.addEventListener("click", clearOverlays);
 
-        clearSelectionBtn.addEventListener("click", function () {
-            setSelection(null);
+        inspectorActions.addEventListener("click", function (event) {
+            const button = event.target.closest("[data-inspector]");
+            if (button) handleInspectorAction(button.dataset.inspector);
         });
+
+        newSessionBtn.addEventListener("click", startNewSession);
 
         if ("ResizeObserver" in window) {
             new ResizeObserver(redrawVisualization).observe(vizStage);
+            new ResizeObserver(() => {
+                fitMetricRow(trackAnalysisMetrics);
+                fitMetricRow(selectionMetrics);
+            }).observe(document.querySelector(".insight-strip"));
         }
         window.addEventListener("resize", redrawVisualization);
+        window.addEventListener("resize", () => safeRender(renderArrangementTimeline));
 
         attachBtn.addEventListener("click", function () {
             audioFileInput.click();
@@ -2473,6 +3796,8 @@
                 showWaveformArea(audioFileName);
                 resetVisualization();
                 setTrackControlsEnabled(true);
+                activeFindingId = null;
+                renderWorkspace();
 
                 if (currentAudioObjectUrl) {
                     URL.revokeObjectURL(currentAudioObjectUrl);
@@ -2501,22 +3826,26 @@
             }
         });
 
-        document.querySelectorAll(".quick-action").forEach((button) => {
-            button.addEventListener("click", function () {
-                userInput.value = this.dataset.prompt || "";
-                userInput.focus();
-                userInput.style.height = "auto";
-                userInput.style.height = Math.min(userInput.scrollHeight, 130) + "px";
-            });
-        });
+        function setChatBusy(busy) {
+            chatBusy = busy;
+            sendBtn.disabled = busy;
+            newSessionBtn.disabled = busy;
+            safeRender(renderSelectionInspector);
+        }
 
-        async function send() {
-            const text = userInput.value.trim();
+        // textOverride lets workspace controls send a prompt without touching the composer draft.
+        async function send(textOverride) {
+            if (chatBusy) return;
+
+            const fromComposer = typeof textOverride !== "string";
+            const text = (fromComposer ? userInput.value : textOverride).trim();
             if (!text) return;
 
-            userInput.value = "";
-            userInput.style.height = "auto";
-            sendBtn.disabled = true;
+            if (fromComposer) {
+                userInput.value = "";
+                userInput.style.height = "auto";
+            }
+            setChatBusy(true);
 
             addMessage("you", text);
             const loading = addMessage("assistant", "Thinking...", true);
@@ -2555,16 +3884,20 @@
                 renderMarkdown(responseContent, data.response);
                 loading.classList.remove("loading");
                 messages.scrollTop = messages.scrollHeight;
+
+                await refreshProjectState();
             } catch (e) {
                 loading.querySelector(".content").textContent = "Error: " + e.message;
                 loading.classList.remove("loading");
+            } finally {
+                setChatBusy(false);
+                renderWorkspace();
             }
 
-            sendBtn.disabled = false;
             userInput.focus();
         }
 
-        sendBtn.addEventListener("click", send);
+        sendBtn.addEventListener("click", () => send());
 
         userInput.addEventListener("keydown", function (e) {
             if (e.key === "Enter" && !e.shiftKey) {
@@ -2579,6 +3912,7 @@
         });
 
         renderSessionState();
+        renderWorkspace();
         userInput.focus();
     </script>
 </body>

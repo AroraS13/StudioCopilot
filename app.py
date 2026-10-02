@@ -9,6 +9,13 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from project_state import (
+    format_project_context,
+    new_project_state,
+    public_project_state,
+    record_tool_result,
+    set_next_action_status,
+)
 from tools import AUDIO_UPLOAD_DIR, TOOLS, render_spectrogram_png, run_tool
 
 # --- Config ---
@@ -94,24 +101,66 @@ SYSTEM_PROMPT = (
     "specific audio region, or when directing visual attention to an exact analyzed "
     "region would materially improve your explanation. Base its range on tool "
     "measurements or user-provided timestamps. Do not call it on every response. "
+    "Do not infer that individual instruments enter or drop out from aggregate DSP "
+    "features such as RMS, onset density, or spectral centroid. "
+    "If the user asks about an exact timestamp range and no earlier analysis covers "
+    "exactly that range, call analyze_audio_track on the requested range; the coarse "
+    "energy_profile segments of a full-track analysis are not sufficient for a "
+    "precise timestamp comparison. "
+    "Studio Copilot maintains a persistent Production Plan for this session, shown "
+    "to the user in the workspace: a goal, key findings, decisions, and next actions, "
+    "plus the active reference track and arrangement. Its current contents are given "
+    "to you as project state below. Use it to continue the user's work without asking "
+    "them to restate what was already established. "
+    "Use update_project_state only for durable changes: when the user states or "
+    "changes their goal, when analysis produces a genuinely useful finding, when the "
+    "user makes an actual decision, when concrete next actions are agreed, or when a "
+    "next action is completed or becomes obsolete. Do not call it merely because you "
+    "responded, and do not save every observation. "
+    "Goals reflect the user's stated intent, never your guess. Findings must be "
+    "supported by analyze_audio_track measurements or explicit user statements; use "
+    "the exact analyzed timestamps for location-based findings and never turn "
+    "speculation into a finding. Your suggestions are not decisions; decisions are "
+    "choices the user made. Next actions are concrete suggested steps (usually 2 to 5) "
+    "and are not decisions or completed work unless marked done. "
+    "focus_audio_region means 'look here right now' (temporary visual attention); "
+    "update_project_state means 'remember this as part of our production plan' "
+    "(durable project memory). They serve different purposes. "
+    "Findings marked as from an earlier upload describe a previous audio file; do "
+    "not apply their timestamps to the current audio without re-analyzing it. "
     )
-MAX_TOOL_ROUNDS = 5
+MAX_TOOL_ROUNDS = 8
 
 # --- The Harness ---
 
 
-def run_agent(messages: list[dict]) -> tuple[str, list[dict]]:
+def run_agent(messages: list[dict], context: dict | None = None) -> tuple[str, list[dict]]:
     """Complete until the model answers without asking for a tool.
 
     Returns the final text and a record of every tool call made along the way.
+    context carries the session's project state and attached audio_file_id.
     """
     tool_calls = []
 
     for _ in range(MAX_TOOL_ROUNDS):
+        model_messages = messages
+
+        # Rebuilt every round so the model sees plan updates made earlier in this
+        # turn; never stored in the session history.
+        if context is not None:
+            project_context = format_project_context(
+                context["project_state"],
+                context.get("audio_file_id"),
+            )
+            model_messages = [
+                {"role": "system", "content": f"{SYSTEM_PROMPT}\n\n{project_context}"},
+                *messages[1:],
+            ]
+
         reply = litellm.completion(
             model="vertex_ai/gemini-3.5-flash-lite",
             vertex_location="global",
-            messages=messages,
+            messages=model_messages,
             tools=TOOLS,
         ).choices[0].message
 
@@ -125,8 +174,17 @@ def run_agent(messages: list[dict]) -> tuple[str, list[dict]]:
 
         # The harness, not the model, runs each tool and appends the result
         for call in reply.tool_calls:
-            args = json.loads(call.function.arguments)
-            result = run_tool(call.function.name, args)
+            try:
+                args = json.loads(call.function.arguments or "{}")
+            except json.JSONDecodeError:
+                args = {}
+                result = json.dumps({"error": "Tool arguments were not valid JSON."})
+            else:
+                result = run_tool(call.function.name, args, context)
+
+            if context is not None:
+                record_tool_result(context["project_state"], call.function.name, args, result)
+
             tool_calls += [{"name": call.function.name, "args": args, "result": result}]
 
             messages += [{"role": "tool", "tool_call_id": call.id, "content": result}]
@@ -138,6 +196,9 @@ def run_agent(messages: list[dict]) -> tuple[str, list[dict]]:
 
 # session_id -> list of messages. In-memory, single process.
 sessions: dict[str, list] = {}
+
+# session_id -> Production Plan state (see project_state.py). Same lifetime as sessions.
+project_states: dict[str, dict] = {}
 
 # --- FastAPI App ---
 
@@ -155,6 +216,10 @@ class ChatResponse(BaseModel):
     response: str
     session_id: str
     tool_calls: list[dict]
+
+
+class NextActionStatusRequest(BaseModel):
+    status: str
 
 
 @app.get("/")
@@ -253,8 +318,10 @@ def chat(request: ChatRequest):
     session_id = request.session_id or str(uuid.uuid4())
     if session_id not in sessions:
         sessions[session_id] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    project_state = project_states.setdefault(session_id, new_project_state())
 
     user_content = request.message
+    safe_audio_file_id = None
 
     if request.audio_file_id:
         safe_audio_file_id = Path(
@@ -297,18 +364,46 @@ def chat(request: ChatRequest):
         }
     ]
 
+    context = {
+        "session_id": session_id,
+        "project_state": project_state,
+        "audio_file_id": safe_audio_file_id,
+    }
+
     try:
-        response, tool_calls = run_agent(sessions[session_id])
+        response, tool_calls = run_agent(sessions[session_id], context)
     except Exception as e:
         # Auth, billing, a model that is not running: show it in the chat, not as a 500.
         response, tool_calls = f"Model call failed: {type(e).__name__}: {str(e)[:300]}", []
 
-    return ChatResponse(response=response, session_id=session_id, tool_calls=tool_calls)
+    return ChatResponse(response=response or "", session_id=session_id, tool_calls=tool_calls)
+
+
+@app.get("/project-state/{session_id}")
+def get_project_state(session_id: str):
+    state = project_states.get(session_id)
+    return public_project_state(state if state is not None else new_project_state())
+
+
+@app.post("/project-state/{session_id}/next-actions/{action_id}")
+def update_next_action(session_id: str, action_id: str, request: NextActionStatusRequest):
+    state = project_states.get(session_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="Unknown session.")
+
+    if request.status not in ("pending", "done"):
+        raise HTTPException(status_code=400, detail="status must be 'pending' or 'done'.")
+
+    if not set_next_action_status(state, action_id, request.status):
+        raise HTTPException(status_code=404, detail="Unknown next action.")
+
+    return public_project_state(state)
 
 
 @app.post("/clear")
 def clear(session_id: str | None = None):
     sessions.pop(session_id, None)
+    project_states.pop(session_id, None)
     return {"status": "ok"}
 
 

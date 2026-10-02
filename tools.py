@@ -15,6 +15,8 @@ from pathlib import Path
 import librosa
 import numpy as np
 
+from project_state import UPDATE_PROJECT_STATE_TOOL, update_project_state
+
 AUDIO_UPLOAD_DIR = Path(
     os.getenv("AUDIO_UPLOAD_DIR", "/tmp/studio_copilot_audio")
 )
@@ -2044,18 +2046,33 @@ TOOLS = [
             },
         },
     },
+    UPDATE_PROJECT_STATE_TOOL,
 ]
 
 
 # What the harness actually runs.
-TOOL_MAP = {"transform_sample": transform_sample, "build_arrangement": build_arrangement,"lookup_reference_track": lookup_reference_track,"analyze_audio_track": analyze_audio_track,"focus_audio_region": focus_audio_region,}
+TOOL_MAP = {"transform_sample": transform_sample, "build_arrangement": build_arrangement,"lookup_reference_track": lookup_reference_track,"analyze_audio_track": analyze_audio_track,"focus_audio_region": focus_audio_region,"update_project_state": update_project_state,}
+
+# Tools that act on the current session. The harness supplies the session's
+# project state and attached audio_file_id; the model never sees session IDs.
+CONTEXT_TOOLS = {"update_project_state"}
 
 
-def run_tool(name: str, args: dict) -> str:
+def run_tool(name: str, args: dict, context: dict | None = None) -> str:
     """Run one tool call without allowing bad model arguments to crash the agent loop."""
     if name not in TOOL_MAP:
         return json.dumps({"error": f"Unknown tool '{name}'. Available: {list(TOOL_MAP)}"})
+    if not isinstance(args, dict):
+        return json.dumps({"error": f"Arguments for {name} must be a JSON object."})
     try:
+        if name in CONTEXT_TOOLS:
+            if not context or "project_state" not in context:
+                return json.dumps({"error": f"{name} requires an active chat session."})
+            return TOOL_MAP[name](
+                context["project_state"],
+                context.get("audio_file_id"),
+                **args,
+            )
         return TOOL_MAP[name](**args)
     except TypeError as e:
         return json.dumps({"error": f"Bad arguments for {name}: {e}"})
