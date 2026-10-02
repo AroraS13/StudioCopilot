@@ -1,4 +1,5 @@
 import json
+import math
 import uuid
 from pathlib import Path
 
@@ -8,7 +9,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from tools import AUDIO_UPLOAD_DIR, TOOLS, run_tool
+from tools import AUDIO_UPLOAD_DIR, TOOLS, render_spectrogram_png, run_tool
 
 # --- Config ---
 
@@ -32,7 +33,7 @@ SYSTEM_PROMPT = (
     "plan or restructure a song timeline around a BPM and target duration. "
     "Decide on an appropriate ordered section list from the user's request, then "
     "let the tool calculate bar counts and timestamps. "
-    "Do not invent arrangement timestamps yourself when this tool is appropriate."
+    "Do not invent arrangement timestamps yourself when this tool is appropriate. "
     "When the user names an existing song as a reference and factual metadata such "
     "as its duration is needed, call lookup_reference_track instead of guessing. "
     "When the user names an existing song as a reference and factual metadata such "
@@ -74,6 +75,25 @@ SYSTEM_PROMPT = (
     "the conversation, reuse those existing results when they are sufficient. "
     "Only call analyze_audio_track again when analyzing a different file or time range, "
     "or when new measurements are actually required. "
+    "analyze_audio_track performs actual audio measurements. "
+    "Interpret colon-formatted timestamps as MM:SS unless context clearly indicates "
+    "otherwise: 0:45 is 45 seconds, 1:10 is 70 seconds, 10:00 is 600 seconds, and "
+    "10:30 is 630 seconds. Convert them to seconds before calling a tool. "
+    "If a tool reports that a requested range is beyond the end of the track, tell "
+    "the user and ask for a valid range. Never silently analyze or highlight a "
+    "different range in its place, and never claim a substitution happened. "
+    "The user works in a Track View that shows their uploaded audio as a waveform or "
+    "spectrogram. The user can drag to select a region there. When a workspace "
+    "context note gives selected timestamps and the user refers to 'this section', "
+    "'this part', 'the selection', or similar, use exactly those timestamps; if the "
+    "request needs measurements of that region, call analyze_audio_track with those "
+    "exact start_seconds and end_seconds. "
+    "You have a focus_audio_region tool that visually highlights a timestamped region "
+    "in the user's Track View. It changes visual focus only and does not analyze "
+    "audio. Use it when the user asks you to show, highlight, locate, or focus on a "
+    "specific audio region, or when directing visual attention to an exact analyzed "
+    "region would materially improve your explanation. Base its range on tool "
+    "measurements or user-provided timestamps. Do not call it on every response. "
     )
 MAX_TOOL_ROUNDS = 5
 
@@ -128,6 +148,8 @@ class ChatRequest(BaseModel):
     message: str
     session_id: str | None = None
     audio_file_id: str | None = None
+    selected_start_seconds: float | None = None
+    selected_end_seconds: float | None = None
 
 class ChatResponse(BaseModel):
     response: str
@@ -204,6 +226,27 @@ async def upload_audio(file: UploadFile = File(...)):
     }
 
 
+@app.get("/spectrogram/{audio_file_id}")
+def spectrogram(audio_file_id: str):
+    try:
+        image_path = render_spectrogram_png(audio_file_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Spectrogram generation failed: {type(exc).__name__}",
+        )
+
+    return FileResponse(
+        image_path,
+        media_type="image/png",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest):
     # Get or create the session
@@ -226,6 +269,25 @@ def chat(request: ChatRequest):
             "When the user's request requires analyzing the "
             "actual audio, call analyze_audio_track using "
             "this exact audio_file_id.]"
+        )
+
+    selected_start = request.selected_start_seconds
+    selected_end = request.selected_end_seconds
+
+    if (
+        request.audio_file_id
+        and selected_start is not None
+        and selected_end is not None
+        and math.isfinite(selected_start)
+        and math.isfinite(selected_end)
+        and 0 <= selected_start < selected_end
+    ):
+        user_content += (
+            "\n\n"
+            "[Workspace context: The user currently has audio selected "
+            f"from {selected_start:.1f}s to {selected_end:.1f}s in Track View. "
+            'If the user refers to "this section", "this part", '
+            '"the selected region", etc., use this exact range.]'
         )
 
     sessions[session_id] += [

@@ -465,10 +465,12 @@
             align-items: center;
             justify-content: space-between;
             gap: 12px;
-            margin-bottom: 9px;
+            min-height: 24px;
+            margin-bottom: 7px;
         }
 
         #waveform-filename {
+            flex: 1 1 auto;
             min-width: 0;
             color: #dbe7f3;
             font-size: 0.79rem;
@@ -483,32 +485,214 @@
             font-variant-numeric: tabular-nums;
         }
 
-        .waveform-wrap {
-            position: relative;
-            width: 100%;
+        .meta-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+            flex: 0 0 auto;
         }
 
-        #waveform-canvas {
-            display: block;
+        #selection-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: 2px 3px 2px 9px;
+            border: 1px solid rgba(76, 156, 255, 0.35);
+            border-radius: 999px;
+            background: rgba(76, 156, 255, 0.1);
+            color: #a9cdff;
+            font-size: 0.69rem;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }
+
+        #selection-chip[hidden] {
+            display: none !important;
+        }
+
+        #clear-selection-btn {
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: rgba(76, 156, 255, 0.14);
+            color: #cfe2ff;
+            font-size: 0.64rem;
+            cursor: pointer;
+        }
+
+        #clear-selection-btn:hover {
+            background: rgba(76, 156, 255, 0.26);
+        }
+
+        /* Waveform, spectrogram, and overlay share this exact rectangle so
+           every overlay uses one time axis: x = t / duration * width. */
+        .visualization-stage {
+            position: relative;
+            flex: 0 0 120px;
             width: 100%;
-            height: 112px;
-            flex: 0 0 112px;
-            min-height: 112px;
-            max-height: 112px;
+            height: 120px;
+            min-height: 120px;
+            max-height: 120px;
+            overflow: hidden;
             border: 1px solid var(--border-soft);
             border-radius: 10px;
-            background:
-                linear-gradient(180deg, rgba(76, 156, 255, 0.035), transparent 55%),
-                #090e14;
+            background: #090e14;
         }
 
-        .waveform-label {
+        #waveform-canvas,
+        #spectrogram-image,
+        #overlay-canvas {
             position: absolute;
-            left: 10px;
-            bottom: 8px;
-            color: rgba(137, 152, 170, 0.58);
-            font-size: 0.62rem;
+            inset: 0;
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        #spectrogram-image {
+            display: none;
+            object-fit: fill;
+            user-select: none;
+            -webkit-user-drag: none;
             pointer-events: none;
+        }
+
+        .visualization-stage[data-view="spectrogram"][data-spec-ready="true"] #spectrogram-image {
+            display: block;
+        }
+
+        .visualization-stage[data-view="spectrogram"][data-spec-ready="true"] #waveform-canvas {
+            visibility: hidden;
+        }
+
+        .visualization-stage[data-view="spectrogram"]:not([data-spec-ready="true"]) #waveform-canvas {
+            opacity: 0.35;
+        }
+
+        #overlay-canvas {
+            z-index: 2;
+            cursor: crosshair;
+            touch-action: pan-y;
+        }
+
+        .viz-view-label,
+        #viz-status {
+            position: absolute;
+            bottom: 6px;
+            z-index: 3;
+            padding: 1px 6px;
+            border-radius: 5px;
+            background: rgba(6, 9, 14, 0.55);
+            font-size: 0.6rem;
+            pointer-events: none;
+        }
+
+        .viz-view-label {
+            left: 8px;
+            color: rgba(137, 152, 170, 0.75);
+        }
+
+        #viz-status {
+            right: 8px;
+            color: var(--muted);
+        }
+
+        #viz-status.error {
+            color: var(--danger);
+        }
+
+        #viz-status[hidden],
+        #viz-tooltip[hidden] {
+            display: none !important;
+        }
+
+        #viz-tooltip {
+            position: absolute;
+            top: 8px;
+            left: 0;
+            z-index: 4;
+            max-width: 240px;
+            padding: 6px 8px;
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            background: rgba(8, 12, 18, 0.94);
+            color: var(--text);
+            font-size: 0.66rem;
+            line-height: 1.45;
+            pointer-events: none;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+        }
+
+        #viz-tooltip .tooltip-title {
+            font-weight: 700;
+        }
+
+        #viz-tooltip .tooltip-muted {
+            color: var(--muted);
+        }
+
+        /* ---------- Track View controls ---------- */
+
+        .track-title {
+            padding-top: 5px;
+            padding-bottom: 5px;
+            flex-wrap: wrap;
+        }
+
+        .track-controls {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+            gap: 8px;
+            letter-spacing: 0;
+            text-transform: none;
+        }
+
+        .view-toggle {
+            display: inline-flex;
+            padding: 2px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: #0c1219;
+        }
+
+        .view-btn {
+            padding: 3px 9px;
+            border-radius: 6px;
+            background: transparent;
+            color: var(--muted);
+            font-size: 0.68rem;
+            font-weight: 650;
+            cursor: pointer;
+            transition: 120ms ease;
+        }
+
+        .view-btn:hover:not(:disabled) {
+            color: var(--text);
+        }
+
+        .view-btn.active {
+            background: var(--green-soft);
+            color: var(--green);
+            box-shadow: inset 0 0 0 1px var(--green-border);
+        }
+
+        .track-ctrl-btn {
+            padding: 4px 9px;
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            background: var(--panel-soft);
+            color: #c6d2df;
+            font-size: 0.68rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 120ms ease;
+        }
+
+        .track-ctrl-btn:hover:not(:disabled) {
+            border-color: #3a4b5e;
+            color: var(--text);
         }
 
         #audio-player {
@@ -903,6 +1087,11 @@
                 max-width: 92%;
             }
 
+            #waveform-meta {
+                flex-wrap: wrap;
+                row-gap: 6px;
+            }
+
             #composer {
                 padding: 0 10px 10px;
             }
@@ -1030,9 +1219,34 @@
 
             <main id="main">
                 <section class="panel" id="waveform-panel">
-                    <div class="panel-title">
+                    <div class="panel-title track-title">
                         <span>Track View</span>
-                        <span class="panel-title-badge" id="track-state">No audio</span>
+                        <div class="track-controls">
+                            <div class="view-toggle" role="group" aria-label="Track visualization">
+                                <button
+                                    class="view-btn active"
+                                    type="button"
+                                    data-view="waveform"
+                                    aria-pressed="true"
+                                    disabled
+                                >Waveform</button>
+                                <button
+                                    class="view-btn"
+                                    type="button"
+                                    data-view="spectrogram"
+                                    aria-pressed="false"
+                                    disabled
+                                >Spectrogram</button>
+                            </div>
+                            <button
+                                class="track-ctrl-btn"
+                                id="clear-overlays-btn"
+                                type="button"
+                                title="Clear analysis ranges, focus regions, and transition markers"
+                                disabled
+                            >Clear overlays</button>
+                            <span class="panel-title-badge" id="track-state">No audio</span>
+                        </div>
                     </div>
 
                     <div id="waveform-empty">
@@ -1042,12 +1256,22 @@
                     <div id="waveform-content" hidden>
                         <div id="waveform-meta">
                             <div id="waveform-filename">No file selected</div>
-                            <div id="waveform-duration">—</div>
+                            <div class="meta-right">
+                                <div id="selection-chip" hidden>
+                                    <span id="selection-text"></span>
+                                    <button id="clear-selection-btn" type="button">Clear selection</button>
+                                </div>
+                                <div id="waveform-duration">—</div>
+                            </div>
                         </div>
 
-                        <div class="waveform-wrap">
-                            <canvas id="waveform-canvas" width="1200" height="180"></canvas>
-                            <div class="waveform-label">waveform preview</div>
+                        <div class="visualization-stage" id="viz-stage" data-view="waveform" data-spec-ready="false">
+                            <canvas id="waveform-canvas"></canvas>
+                            <img id="spectrogram-image" alt="Spectrogram of the uploaded track" draggable="false" />
+                            <canvas id="overlay-canvas"></canvas>
+                            <div class="viz-view-label" id="viz-view-label">waveform</div>
+                            <div id="viz-status" hidden></div>
+                            <div id="viz-tooltip" hidden></div>
                         </div>
 
                         <audio id="audio-player" controls preload="metadata"></audio>
@@ -1123,6 +1347,18 @@
         const audioPlayer = document.getElementById("audio-player");
         const trackState = document.getElementById("track-state");
 
+        const vizStage = document.getElementById("viz-stage");
+        const overlayCanvas = document.getElementById("overlay-canvas");
+        const spectrogramImage = document.getElementById("spectrogram-image");
+        const vizViewLabel = document.getElementById("viz-view-label");
+        const vizStatus = document.getElementById("viz-status");
+        const vizTooltip = document.getElementById("viz-tooltip");
+        const viewButtons = document.querySelectorAll(".view-btn");
+        const clearOverlaysBtn = document.getElementById("clear-overlays-btn");
+        const selectionChip = document.getElementById("selection-chip");
+        const selectionText = document.getElementById("selection-text");
+        const clearSelectionBtn = document.getElementById("clear-selection-btn");
+
         const sessionTrack = document.getElementById("session-track");
         const sessionDuration = document.getElementById("session-duration");
         const sessionTempo = document.getElementById("session-tempo");
@@ -1144,6 +1380,46 @@
             reference: "—",
             arrangement: "—",
         };
+
+        // Single source of truth for everything drawn over the waveform/spectrogram.
+        // All times are in seconds on the track's own time axis.
+        const visualState = {
+            durationSeconds: 0,
+            view: "waveform",
+            analyzedRegions: [],
+            focusedRegions: [],
+            structureMarkers: [],
+            selection: null,
+            draftSelection: null,
+            playheadSeconds: 0,
+            hoveredMarker: null,
+        };
+
+        const spectrogramState = {
+            audioFileId: null,
+            status: "idle",
+            attempts: 0,
+        };
+
+        const WAVEFORM_PEAK_COUNT = 1200;
+        const DRAG_THRESHOLD_PX = 4;
+        const MARKER_HOVER_PX = 5;
+        const MIN_SELECTION_SECONDS = 0.1;
+
+        const ANALYSIS_STYLES = [
+            { fill: "rgba(56, 189, 196, 0.12)", edge: "rgba(56, 189, 196, 0.6)", text: "#8fe3e6" },
+            { fill: "rgba(138, 156, 255, 0.12)", edge: "rgba(138, 156, 255, 0.6)", text: "#b7c2ff" },
+        ];
+        const FOCUS_STYLE = { fill: "rgba(130, 239, 99, 0.17)", edge: "rgba(130, 239, 99, 0.9)", text: "#9df27c" };
+        const SELECTION_STYLE = { fill: "rgba(76, 156, 255, 0.22)", edge: "rgba(120, 180, 255, 0.95)" };
+        const MARKER_COLOR = "rgba(228, 174, 71, 0.78)";
+        const MARKER_HOVER_COLOR = "#f6cf74";
+        const PLAYHEAD_COLOR = "rgba(255, 255, 255, 0.95)";
+
+        let waveformPeaks = null;
+        let analysisLabelCount = 0;
+        let pointerGesture = null;
+        let playheadFrame = null;
 
         function formatTime(seconds) {
             const value = Number(seconds);
@@ -1332,7 +1608,18 @@
             card.appendChild(body);
 
             activityLog.prepend(card);
-            updateSessionFromToolCall(call);
+
+            try {
+                updateSessionFromToolCall(call);
+            } catch (error) {
+                console.warn("Session update skipped:", error);
+            }
+
+            try {
+                updateVisualizationFromToolCall(call);
+            } catch (error) {
+                console.warn("Visualization update skipped:", error);
+            }
         }
 
         function setAttachButtonState(state) {
@@ -1375,61 +1662,30 @@
                 const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
                 const rawData = audioBuffer.getChannelData(0);
 
-                const samples = 260;
-                const blockSize = Math.max(1, Math.floor(rawData.length / samples));
-                const values = [];
+                // Exact block boundaries keep peak i aligned with
+                // [i/N, (i+1)/N) of the track duration.
+                const peaks = new Float32Array(WAVEFORM_PEAK_COUNT);
 
-                for (let i = 0; i < samples; i++) {
-                    const start = i * blockSize;
-                    const end = Math.min(start + blockSize, rawData.length);
+                for (let i = 0; i < WAVEFORM_PEAK_COUNT; i++) {
+                    const start = Math.floor((i * rawData.length) / WAVEFORM_PEAK_COUNT);
+                    const end = Math.max(
+                        start + 1,
+                        Math.floor(((i + 1) * rawData.length) / WAVEFORM_PEAK_COUNT)
+                    );
                     let sum = 0;
 
-                    for (let j = start; j < end; j++) {
+                    for (let j = start; j < end && j < rawData.length; j++) {
                         sum += Math.abs(rawData[j]);
                     }
 
-                    values.push(sum / Math.max(1, end - start));
+                    peaks[i] = sum / Math.max(1, end - start);
                 }
 
-                const max = Math.max(...values, 0.000001);
-                const normalized = values.map((value) => value / max);
+                waveformPeaks = peaks;
+                visualState.durationSeconds = audioBuffer.duration;
 
-                const canvas = waveformCanvas;
-                const ctx = canvas.getContext("2d");
-                const width = canvas.width;
-                const height = canvas.height;
-
-                ctx.clearRect(0, 0, width, height);
-                ctx.fillStyle = "#090e14";
-                ctx.fillRect(0, 0, width, height);
-
-                // Subtle horizontal grid.
-                ctx.strokeStyle = "rgba(76, 156, 255, 0.09)";
-                ctx.lineWidth = 1;
-                for (const fraction of [0.25, 0.5, 0.75]) {
-                    const y = height * fraction;
-                    ctx.beginPath();
-                    ctx.moveTo(0, y);
-                    ctx.lineTo(width, y);
-                    ctx.stroke();
-                }
-
-                // Center line.
-                ctx.strokeStyle = "rgba(137, 152, 170, 0.2)";
-                ctx.beginPath();
-                ctx.moveTo(0, height / 2);
-                ctx.lineTo(width, height / 2);
-                ctx.stroke();
-
-                const barWidth = width / normalized.length;
-                ctx.fillStyle = "#82ef63";
-
-                normalized.forEach((value, index) => {
-                    const x = index * barWidth;
-                    const barHeight = Math.max(2, value * height * 0.76);
-                    const y = (height - barHeight) / 2;
-                    ctx.fillRect(x, y, Math.max(1.5, barWidth - 1.2), barHeight);
-                });
+                drawWaveform();
+                renderVisualizationOverlay();
 
                 sessionState.duration = formatTime(audioBuffer.duration);
                 waveformDuration.textContent = formatTime(audioBuffer.duration);
@@ -1438,6 +1694,746 @@
                 await audioContext.close();
             }
         }
+
+        // ---------- Visualization ----------
+
+        function getTrackDuration() {
+            if (visualState.durationSeconds > 0) return visualState.durationSeconds;
+
+            const playerDuration = audioPlayer.duration;
+            return Number.isFinite(playerDuration) && playerDuration > 0 ? playerDuration : 0;
+        }
+
+        function timeToX(seconds, width) {
+            const duration = getTrackDuration();
+            if (!duration) return 0;
+            return (seconds / duration) * width;
+        }
+
+        function xToTime(x, width) {
+            const duration = getTrackDuration();
+            if (!duration || !width) return 0;
+            return Math.min(duration, Math.max(0, (x / width) * duration));
+        }
+
+        function formatPreciseTime(seconds) {
+            const tenths = Math.round(Math.max(0, Number(seconds) || 0) * 10);
+            const minutes = Math.floor(tenths / 600);
+            const secs = (tenths % 600) / 10;
+            return `${minutes}:${secs.toFixed(1).padStart(4, "0")}`;
+        }
+
+        function toFiniteNumber(value) {
+            if (value === null || value === undefined || value === "" || typeof value === "boolean") {
+                return null;
+            }
+            const number = Number(value);
+            return Number.isFinite(number) ? number : null;
+        }
+
+        // Size a stage canvas for the current CSS size and devicePixelRatio,
+        // and return a context that draws in CSS pixels.
+        function prepareStageCanvas(canvas) {
+            const width = vizStage.clientWidth;
+            const height = vizStage.clientHeight;
+            if (!width || !height) return null;
+
+            const dpr = window.devicePixelRatio || 1;
+            const pixelWidth = Math.max(1, Math.round(width * dpr));
+            const pixelHeight = Math.max(1, Math.round(height * dpr));
+
+            if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+            if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+
+            const ctx = canvas.getContext("2d");
+            ctx.setTransform(pixelWidth / width, 0, 0, pixelHeight / height, 0, 0);
+            return { ctx, width, height };
+        }
+
+        function drawWaveform() {
+            const prepared = prepareStageCanvas(waveformCanvas);
+            if (!prepared) return;
+
+            const { ctx, width, height } = prepared;
+
+            ctx.clearRect(0, 0, width, height);
+            ctx.fillStyle = "#090e14";
+            ctx.fillRect(0, 0, width, height);
+
+            // Subtle horizontal grid.
+            ctx.strokeStyle = "rgba(76, 156, 255, 0.09)";
+            ctx.lineWidth = 1;
+            for (const fraction of [0.25, 0.5, 0.75]) {
+                const y = Math.round(height * fraction) + 0.5;
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+                ctx.stroke();
+            }
+
+            // Center line.
+            ctx.strokeStyle = "rgba(137, 152, 170, 0.2)";
+            ctx.beginPath();
+            ctx.moveTo(0, Math.round(height / 2) + 0.5);
+            ctx.lineTo(width, Math.round(height / 2) + 0.5);
+            ctx.stroke();
+
+            if (!waveformPeaks) return;
+
+            const peakCount = waveformPeaks.length;
+            const barCount = Math.max(32, Math.min(peakCount, Math.floor(width / 4)));
+            const bars = new Float32Array(barCount);
+            let max = 0.000001;
+
+            for (let i = 0; i < barCount; i++) {
+                const start = Math.floor((i * peakCount) / barCount);
+                const end = Math.max(start + 1, Math.floor(((i + 1) * peakCount) / barCount));
+                let sum = 0;
+                for (let j = start; j < end; j++) sum += waveformPeaks[j];
+                bars[i] = sum / (end - start);
+                if (bars[i] > max) max = bars[i];
+            }
+
+            const barWidth = width / barCount;
+            ctx.fillStyle = "#82ef63";
+
+            for (let i = 0; i < barCount; i++) {
+                const barHeight = Math.max(2, (bars[i] / max) * height * 0.76);
+                const y = (height - barHeight) / 2;
+                ctx.fillRect(i * barWidth, y, Math.max(1.5, barWidth - 1.2), barHeight);
+            }
+        }
+
+        function fitLabel(ctx, text, maxWidth) {
+            if (ctx.measureText(text).width <= maxWidth) return text;
+
+            let trimmed = text;
+            while (trimmed.length > 1 && ctx.measureText(trimmed + "…").width > maxWidth) {
+                trimmed = trimmed.slice(0, -1);
+            }
+            return trimmed.length > 1 ? trimmed + "…" : "";
+        }
+
+        function regionBounds(region, width) {
+            const x1 = Math.max(0, timeToX(region.start_seconds, width));
+            const x2 = Math.min(width, timeToX(region.end_seconds, width));
+            return { x1, x2, w: Math.max(1, x2 - x1) };
+        }
+
+        function drawVerticalLine(ctx, x, height, color, lineWidth, dash = []) {
+            const crisp = Math.round(x) + (lineWidth % 2 ? 0.5 : 0);
+            ctx.save();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = lineWidth;
+            ctx.setLineDash(dash);
+            ctx.beginPath();
+            ctx.moveTo(crisp, 0);
+            ctx.lineTo(crisp, height);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        function renderVisualizationOverlay() {
+            const prepared = prepareStageCanvas(overlayCanvas);
+            if (!prepared) return;
+
+            const { ctx, width, height } = prepared;
+            ctx.clearRect(0, 0, width, height);
+
+            if (!getTrackDuration()) return;
+
+            ctx.font = "600 10px Inter, ui-sans-serif, -apple-system, sans-serif";
+            ctx.textBaseline = "top";
+
+            // Analysis ranges: subtle fill, thin top band, label at the top.
+            visualState.analyzedRegions.forEach((region, index) => {
+                const style = ANALYSIS_STYLES[index % ANALYSIS_STYLES.length];
+                const { x1, x2, w } = regionBounds(region, width);
+
+                ctx.fillStyle = style.fill;
+                ctx.fillRect(x1, 0, w, height);
+                ctx.fillStyle = style.edge;
+                ctx.fillRect(x1, 0, w, 2);
+                drawVerticalLine(ctx, x1, height, style.edge, 1);
+                drawVerticalLine(ctx, x2, height, style.edge, 1);
+
+                const label = fitLabel(ctx, region.label, w - 8);
+                if (label) {
+                    ctx.fillStyle = style.text;
+                    ctx.fillText(label, x1 + 4, 5);
+                }
+            });
+
+            // Agent focus regions: stronger fill, edges, label chip at the bottom.
+            visualState.focusedRegions.forEach((region) => {
+                const { x1, x2, w } = regionBounds(region, width);
+
+                ctx.fillStyle = FOCUS_STYLE.fill;
+                ctx.fillRect(x1, 0, w, height);
+                ctx.fillStyle = FOCUS_STYLE.edge;
+                ctx.fillRect(x1, height - 3, w, 3);
+                drawVerticalLine(ctx, x1, height, FOCUS_STYLE.edge, 1.5);
+                drawVerticalLine(ctx, x2, height, FOCUS_STYLE.edge, 1.5);
+
+                const label = fitLabel(ctx, region.label, w - 14);
+                if (label) {
+                    const chipWidth = ctx.measureText(label).width + 10;
+                    ctx.fillStyle = "rgba(6, 9, 14, 0.82)";
+                    ctx.fillRect(x1 + 3, height - 21, chipWidth, 15);
+                    ctx.fillStyle = FOCUS_STYLE.text;
+                    ctx.fillText(label, x1 + 8, height - 19);
+                }
+            });
+
+            // User selection (committed, or live while dragging).
+            const selection = visualState.draftSelection || visualState.selection;
+            if (selection) {
+                const { x1, x2, w } = regionBounds(selection, width);
+                ctx.fillStyle = SELECTION_STYLE.fill;
+                ctx.fillRect(x1, 0, w, height);
+                drawVerticalLine(ctx, x1, height, SELECTION_STYLE.edge, 1);
+                drawVerticalLine(ctx, x2, height, SELECTION_STYLE.edge, 1);
+            }
+
+            // Candidate transitions: thin dashed amber lines with a top tick.
+            for (const marker of visualState.structureMarkers) {
+                const x = timeToX(marker.time_seconds, width);
+                const hovered = marker === visualState.hoveredMarker;
+                const color = hovered ? MARKER_HOVER_COLOR : MARKER_COLOR;
+
+                drawVerticalLine(ctx, x, height, color, 1, hovered ? [] : [3, 3]);
+
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.moveTo(x - 4, 0);
+                ctx.lineTo(x + 4, 0);
+                ctx.lineTo(x, 6);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            // Playback playhead: solid white with a soft glow.
+            const playheadX = timeToX(visualState.playheadSeconds, width);
+            ctx.save();
+            ctx.shadowColor = "rgba(255, 255, 255, 0.45)";
+            ctx.shadowBlur = 4;
+            drawVerticalLine(ctx, playheadX, height, PLAYHEAD_COLOR, 1.5);
+            ctx.restore();
+        }
+
+        function redrawVisualization() {
+            drawWaveform();
+            renderVisualizationOverlay();
+        }
+
+        function setVizStatus(text, kind = "info") {
+            vizStatus.textContent = text || "";
+            vizStatus.hidden = !text;
+            vizStatus.classList.toggle("error", kind === "error");
+            vizStatus.dataset.kind = text ? kind : "";
+        }
+
+        function setTrackControlsEnabled(enabled) {
+            viewButtons.forEach((button) => {
+                button.disabled = !enabled;
+            });
+            clearOverlaysBtn.disabled = !enabled;
+        }
+
+        function setView(view) {
+            visualState.view = view === "spectrogram" ? "spectrogram" : "waveform";
+
+            viewButtons.forEach((button) => {
+                const active = button.dataset.view === visualState.view;
+                button.classList.toggle("active", active);
+                button.setAttribute("aria-pressed", String(active));
+            });
+
+            vizStage.dataset.view = visualState.view;
+            vizViewLabel.textContent =
+                visualState.view === "spectrogram" ? "spectrogram · mel scale" : "waveform";
+
+            if (visualState.view === "spectrogram") {
+                ensureSpectrogram();
+            } else if (vizStatus.dataset.kind === "loading") {
+                setVizStatus("");
+            }
+
+            renderVisualizationOverlay();
+        }
+
+        function ensureSpectrogram() {
+            if (!audioFileId) return;
+
+            const requestedId = audioFileId;
+
+            if (spectrogramState.audioFileId === requestedId) {
+                if (spectrogramState.status === "ready") {
+                    vizStage.dataset.specReady = "true";
+                    return;
+                }
+                if (spectrogramState.status === "loading") return;
+            } else {
+                spectrogramState.attempts = 0;
+            }
+
+            spectrogramState.audioFileId = requestedId;
+            spectrogramState.status = "loading";
+            spectrogramState.attempts += 1;
+            vizStage.dataset.specReady = "false";
+            setVizStatus("Generating spectrogram…", "loading");
+
+            spectrogramImage.onload = function () {
+                if (audioFileId !== requestedId) return;
+                spectrogramState.status = "ready";
+                vizStage.dataset.specReady = "true";
+                if (vizStatus.dataset.kind === "loading") setVizStatus("");
+            };
+
+            spectrogramImage.onerror = function () {
+                if (audioFileId !== requestedId) return;
+                spectrogramState.status = "error";
+                vizStage.dataset.specReady = "false";
+                setView("waveform");
+                setVizStatus("Spectrogram unavailable. Waveform still works.", "error");
+            };
+
+            const retry = spectrogramState.attempts > 1 ? `?retry=${spectrogramState.attempts}` : "";
+            spectrogramImage.src = `/spectrogram/${encodeURIComponent(requestedId)}${retry}`;
+        }
+
+        function resetVisualization() {
+            visualState.durationSeconds = 0;
+            visualState.analyzedRegions = [];
+            visualState.focusedRegions = [];
+            visualState.structureMarkers = [];
+            visualState.selection = null;
+            visualState.draftSelection = null;
+            visualState.playheadSeconds = 0;
+            visualState.hoveredMarker = null;
+            waveformPeaks = null;
+            analysisLabelCount = 0;
+            pointerGesture = null;
+
+            spectrogramState.audioFileId = null;
+            spectrogramState.status = "idle";
+            spectrogramState.attempts = 0;
+            spectrogramImage.onload = null;
+            spectrogramImage.onerror = null;
+            spectrogramImage.removeAttribute("src");
+            vizStage.dataset.specReady = "false";
+
+            setVizStatus("");
+            hideTooltip();
+            updateSelectionUI();
+            redrawVisualization();
+        }
+
+        function clearOverlays() {
+            visualState.analyzedRegions = [];
+            visualState.focusedRegions = [];
+            visualState.structureMarkers = [];
+            visualState.hoveredMarker = null;
+            analysisLabelCount = 0;
+            hideTooltip();
+            renderVisualizationOverlay();
+        }
+
+        // ---------- Selection ----------
+
+        function updateFileStatus() {
+            if (!audioFileName) {
+                fileStatus.hidden = true;
+                fileStatus.textContent = "";
+                return;
+            }
+
+            const selection = visualState.selection;
+            fileStatus.hidden = false;
+            fileStatus.textContent = selection
+                ? `Attached: ${audioFileName} · Selection ${formatPreciseTime(selection.start_seconds)}–${formatPreciseTime(selection.end_seconds)} will be sent as context`
+                : `Attached: ${audioFileName}`;
+        }
+
+        function updateSelectionUI() {
+            const selection = visualState.selection;
+            selectionChip.hidden = !selection;
+
+            if (selection) {
+                selectionText.textContent =
+                    `Selected: ${formatPreciseTime(selection.start_seconds)} – ${formatPreciseTime(selection.end_seconds)}`;
+            }
+
+            updateFileStatus();
+        }
+
+        function normalizeSelection(timeA, timeB) {
+            const duration = getTrackDuration();
+            const clamp = (t) => Math.min(duration, Math.max(0, t));
+            const start = Math.round(clamp(Math.min(timeA, timeB)) * 10) / 10;
+            const end = Math.round(clamp(Math.max(timeA, timeB)) * 10) / 10;
+            return { start_seconds: start, end_seconds: end };
+        }
+
+        function setSelection(selection) {
+            visualState.selection = selection;
+            updateSelectionUI();
+            renderVisualizationOverlay();
+        }
+
+        // ---------- Hover tooltip ----------
+
+        function hideTooltip() {
+            vizTooltip.hidden = true;
+            vizTooltip.replaceChildren();
+        }
+
+        function showTooltip(x, lines) {
+            vizTooltip.replaceChildren(
+                ...lines.map(({ text, className }) => {
+                    const line = document.createElement("div");
+                    if (className) line.className = className;
+                    line.textContent = text;
+                    return line;
+                })
+            );
+            vizTooltip.hidden = false;
+
+            const stageWidth = vizStage.clientWidth;
+            const tooltipWidth = vizTooltip.offsetWidth;
+            const left = x + 12 + tooltipWidth > stageWidth ? x - 12 - tooltipWidth : x + 12;
+            vizTooltip.style.left = `${Math.max(4, Math.min(left, stageWidth - tooltipWidth - 4))}px`;
+        }
+
+        function findHoverTarget(x, width) {
+            let nearest = null;
+            let nearestDistance = Infinity;
+
+            for (const marker of visualState.structureMarkers) {
+                const distance = Math.abs(timeToX(marker.time_seconds, width) - x);
+                if (distance <= MARKER_HOVER_PX && distance < nearestDistance) {
+                    nearest = marker;
+                    nearestDistance = distance;
+                }
+            }
+
+            if (nearest) return { type: "marker", item: nearest };
+
+            const contains = (region) => {
+                const { x1, x2 } = regionBounds(region, width);
+                return x >= x1 && x <= x2;
+            };
+
+            for (let i = visualState.focusedRegions.length - 1; i >= 0; i--) {
+                if (contains(visualState.focusedRegions[i])) {
+                    return { type: "focus", item: visualState.focusedRegions[i] };
+                }
+            }
+
+            for (let i = visualState.analyzedRegions.length - 1; i >= 0; i--) {
+                if (contains(visualState.analyzedRegions[i])) {
+                    return { type: "analysis", item: visualState.analyzedRegions[i] };
+                }
+            }
+
+            return null;
+        }
+
+        function updateHover(x) {
+            const width = overlayCanvas.clientWidth;
+            const target = getTrackDuration() ? findHoverTarget(x, width) : null;
+            const hoveredMarker = target?.type === "marker" ? target.item : null;
+
+            if (hoveredMarker !== visualState.hoveredMarker) {
+                visualState.hoveredMarker = hoveredMarker;
+                renderVisualizationOverlay();
+            }
+
+            if (!target) {
+                hideTooltip();
+                return;
+            }
+
+            const item = target.item;
+
+            if (target.type === "marker") {
+                const lines = [
+                    { text: "Candidate transition", className: "tooltip-title" },
+                    { text: formatPreciseTime(item.time_seconds) },
+                ];
+                if (item.change_strength !== null) {
+                    lines.push({ text: `Strength: ${item.change_strength.toFixed(3)}`, className: "tooltip-muted" });
+                }
+                showTooltip(x, lines);
+                return;
+            }
+
+            const range = `${formatPreciseTime(item.start_seconds)} – ${formatPreciseTime(item.end_seconds)}`;
+            const lines = [
+                { text: item.label, className: "tooltip-title" },
+                { text: range },
+            ];
+            if (target.type === "focus" && item.reason) {
+                lines.push({ text: item.reason, className: "tooltip-muted" });
+            }
+            showTooltip(x, lines);
+        }
+
+        // ---------- Pointer: drag to select, click to seek ----------
+
+        function localPointerX(event) {
+            const rect = overlayCanvas.getBoundingClientRect();
+            return Math.min(rect.width, Math.max(0, event.clientX - rect.left));
+        }
+
+        function seekTo(seconds) {
+            visualState.playheadSeconds = seconds;
+
+            try {
+                if (audioPlayer.src) audioPlayer.currentTime = seconds;
+            } catch (error) {
+                console.warn("Seek failed:", error);
+            }
+
+            renderVisualizationOverlay();
+        }
+
+        overlayCanvas.addEventListener("pointerdown", function (event) {
+            if (!getTrackDuration() || event.button !== 0) return;
+
+            pointerGesture = {
+                pointerId: event.pointerId,
+                startX: localPointerX(event),
+                dragging: false,
+            };
+
+            try {
+                overlayCanvas.setPointerCapture(event.pointerId);
+            } catch {
+                // Capture is a nicety; dragging still works without it.
+            }
+
+            hideTooltip();
+        });
+
+        overlayCanvas.addEventListener("pointermove", function (event) {
+            const x = localPointerX(event);
+
+            if (pointerGesture && event.pointerId === pointerGesture.pointerId) {
+                if (!pointerGesture.dragging && Math.abs(x - pointerGesture.startX) >= DRAG_THRESHOLD_PX) {
+                    pointerGesture.dragging = true;
+                }
+
+                if (pointerGesture.dragging) {
+                    const width = overlayCanvas.clientWidth;
+                    visualState.draftSelection = normalizeSelection(
+                        xToTime(pointerGesture.startX, width),
+                        xToTime(x, width)
+                    );
+                    renderVisualizationOverlay();
+                }
+                return;
+            }
+
+            updateHover(x);
+        });
+
+        overlayCanvas.addEventListener("pointerup", function (event) {
+            if (!pointerGesture || event.pointerId !== pointerGesture.pointerId) return;
+
+            const gesture = pointerGesture;
+            pointerGesture = null;
+
+            if (gesture.dragging) {
+                const draft = visualState.draftSelection;
+                visualState.draftSelection = null;
+
+                if (draft && draft.end_seconds - draft.start_seconds >= MIN_SELECTION_SECONDS) {
+                    setSelection(draft);
+                } else {
+                    renderVisualizationOverlay();
+                }
+            } else {
+                seekTo(xToTime(localPointerX(event), overlayCanvas.clientWidth));
+            }
+        });
+
+        overlayCanvas.addEventListener("pointercancel", function () {
+            pointerGesture = null;
+            visualState.draftSelection = null;
+            renderVisualizationOverlay();
+        });
+
+        overlayCanvas.addEventListener("pointerleave", function () {
+            if (pointerGesture) return;
+
+            hideTooltip();
+            if (visualState.hoveredMarker) {
+                visualState.hoveredMarker = null;
+                renderVisualizationOverlay();
+            }
+        });
+
+        // ---------- Playhead ----------
+
+        function syncPlayhead() {
+            visualState.playheadSeconds = audioPlayer.currentTime || 0;
+            renderVisualizationOverlay();
+        }
+
+        function playheadTick() {
+            syncPlayhead();
+            playheadFrame =
+                audioPlayer.paused || audioPlayer.ended ? null : requestAnimationFrame(playheadTick);
+        }
+
+        function stopPlayheadLoop() {
+            if (playheadFrame) cancelAnimationFrame(playheadFrame);
+            playheadFrame = null;
+            syncPlayhead();
+        }
+
+        audioPlayer.addEventListener("play", function () {
+            if (!playheadFrame) playheadFrame = requestAnimationFrame(playheadTick);
+        });
+        audioPlayer.addEventListener("pause", stopPlayheadLoop);
+        audioPlayer.addEventListener("ended", stopPlayheadLoop);
+        audioPlayer.addEventListener("seeked", function () {
+            if (!playheadFrame) syncPlayhead();
+        });
+        audioPlayer.addEventListener("timeupdate", function () {
+            if (!playheadFrame) syncPlayhead();
+        });
+        audioPlayer.addEventListener("loadedmetadata", renderVisualizationOverlay);
+
+        // ---------- Tool calls -> overlays ----------
+
+        function nextAnalysisLabel() {
+            let n = analysisLabelCount++;
+            let letters = "";
+            do {
+                letters = String.fromCharCode(65 + (n % 26)) + letters;
+                n = Math.floor(n / 26) - 1;
+            } while (n >= 0);
+            return `Analysis ${letters}`;
+        }
+
+        function sameRange(a, b) {
+            return (
+                Math.abs(a.start_seconds - b.start_seconds) < 0.01 &&
+                Math.abs(a.end_seconds - b.end_seconds) < 0.01
+            );
+        }
+
+        function applyAnalysisResult(args, result) {
+            const fullDuration =
+                toFiniteNumber(result.full_track_duration_seconds) ?? getTrackDuration();
+
+            if (!visualState.durationSeconds && fullDuration) {
+                visualState.durationSeconds = fullDuration;
+            }
+
+            const requestedStart = toFiniteNumber(args.start_seconds);
+            const requestedEnd = toFiniteNumber(args.end_seconds);
+            const range = result.analysis_range && typeof result.analysis_range === "object"
+                ? result.analysis_range
+                : {};
+            const start = toFiniteNumber(range.start_seconds) ?? requestedStart;
+            const end = toFiniteNumber(range.end_seconds) ?? requestedEnd;
+
+            if (requestedStart !== null && requestedEnd !== null && start !== null && end !== null && end > start) {
+                const coversWholeTrack = fullDuration && start <= 0.5 && end >= fullDuration - 0.5;
+                const region = { start_seconds: start, end_seconds: end };
+
+                if (!coversWholeTrack && !visualState.analyzedRegions.some((r) => sameRange(r, region))) {
+                    region.label = nextAnalysisLabel();
+                    visualState.analyzedRegions.push(region);
+                }
+            }
+
+            const boundaries = Array.isArray(result.candidate_structure_boundaries)
+                ? result.candidate_structure_boundaries
+                : [];
+
+            for (const boundary of boundaries) {
+                if (!boundary || typeof boundary !== "object") continue;
+
+                const time = toFiniteNumber(boundary.time_seconds);
+                const strength = toFiniteNumber(boundary.change_strength);
+                if (time === null || time < 0 || (fullDuration && time > fullDuration)) continue;
+
+                const existing = visualState.structureMarkers.find(
+                    (marker) => Math.abs(marker.time_seconds - time) < 0.5
+                );
+
+                if (existing) {
+                    if (strength !== null && (existing.change_strength === null || strength > existing.change_strength)) {
+                        existing.change_strength = strength;
+                    }
+                } else {
+                    visualState.structureMarkers.push({ time_seconds: time, change_strength: strength });
+                }
+            }
+
+            visualState.structureMarkers.sort((a, b) => a.time_seconds - b.time_seconds);
+        }
+
+        function applyFocusResult(result) {
+            const start = toFiniteNumber(result.start_seconds);
+            const end = toFiniteNumber(result.end_seconds);
+            if (start === null || end === null || end <= start || start < 0) return;
+
+            const region = {
+                start_seconds: start,
+                end_seconds: end,
+                label: typeof result.label === "string" && result.label.trim() ? result.label.trim() : "Focus",
+                reason: typeof result.reason === "string" ? result.reason.trim() : "",
+            };
+
+            const duplicate = visualState.focusedRegions.some(
+                (r) => sameRange(r, region) && r.label === region.label
+            );
+            if (!duplicate) visualState.focusedRegions.push(region);
+        }
+
+        function updateVisualizationFromToolCall(call) {
+            if (!call || !audioFileId) return;
+            if (call.name !== "analyze_audio_track" && call.name !== "focus_audio_region") return;
+
+            const args = call.args && typeof call.args === "object" ? call.args : {};
+            if (args.audio_file_id !== audioFileId) return;
+
+            const result = parseResult(call.result);
+            if (!result || typeof result !== "object" || result.error) return;
+            if (result.audio_file_id && result.audio_file_id !== audioFileId) return;
+
+            if (call.name === "analyze_audio_track") {
+                applyAnalysisResult(args, result);
+            } else {
+                applyFocusResult(result);
+            }
+
+            renderVisualizationOverlay();
+        }
+
+        // ---------- Wiring ----------
+
+        viewButtons.forEach((button) => {
+            button.addEventListener("click", function () {
+                setView(this.dataset.view);
+            });
+        });
+
+        clearOverlaysBtn.addEventListener("click", clearOverlays);
+
+        clearSelectionBtn.addEventListener("click", function () {
+            setSelection(null);
+        });
+
+        if ("ResizeObserver" in window) {
+            new ResizeObserver(redrawVisualization).observe(vizStage);
+        }
+        window.addEventListener("resize", redrawVisualization);
 
         attachBtn.addEventListener("click", function () {
             audioFileInput.click();
@@ -1469,15 +2465,14 @@
 
                 setAttachButtonState("attached");
 
-                fileStatus.hidden = false;
-                fileStatus.textContent = `Attached: ${audioFileName}`;
-
                 sessionState.track = audioFileName;
                 sessionState.tempo = "—";
                 sessionState.key = "—";
                 renderSessionState();
 
                 showWaveformArea(audioFileName);
+                resetVisualization();
+                setTrackControlsEnabled(true);
 
                 if (currentAudioObjectUrl) {
                     URL.revokeObjectURL(currentAudioObjectUrl);
@@ -1491,6 +2486,10 @@
                 } catch (waveformError) {
                     console.error("Waveform render failed:", waveformError);
                     waveformDuration.textContent = "preview unavailable";
+                }
+
+                if (visualState.view === "spectrogram") {
+                    ensureSpectrogram();
                 }
             } catch (e) {
                 audioFileId = null;
@@ -1522,15 +2521,22 @@
             addMessage("you", text);
             const loading = addMessage("assistant", "Thinking...", true);
 
+            const payload = {
+                message: text,
+                session_id: sessionId,
+                audio_file_id: audioFileId,
+            };
+
+            if (audioFileId && visualState.selection) {
+                payload.selected_start_seconds = visualState.selection.start_seconds;
+                payload.selected_end_seconds = visualState.selection.end_seconds;
+            }
+
             try {
                 const res = await fetch("/chat", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        message: text,
-                        session_id: sessionId,
-                        audio_file_id: audioFileId,
-                    }),
+                    body: JSON.stringify(payload),
                 });
 
                 const data = await res.json();

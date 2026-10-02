@@ -11,4 +11,5 @@ dependencies = [
     "requests>=2.31",
     "librosa>=0.11.0",
     "python-multipart>=0.0.32",
+    "matplotlib>=3.10.9",
 ]
