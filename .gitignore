@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local secrets and credentials
+.env
+.env.*
+*.pem
+*.key
+application_default_credentials.json
+*service-account*.json
+*-credentials.json
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# Runtime audio and spectrogram caches (default to /tmp; ignored in case
+# AUDIO_UPLOAD_DIR or SPECTROGRAM_CACHE_DIR points inside the repo)
+studio_copilot_audio/
+studio_copilot_spectrograms/
+
+# Logs
+*.log

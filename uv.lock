@@ -1275,35 +1275,6 @@ wheels = [
 ]
 
 [[package]]
-name = "gemini-web-tool-calling"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "fastapi" },
-    { name = "google-cloud-aiplatform" },
-    { name = "librosa", version = "0.11.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "librosa", version = "1.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "litellm" },
-    { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "matplotlib", version = "3.11.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "python-multipart" },
-    { name = "requests" },
-    { name = "uvicorn" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "fastapi", specifier = ">=0.109.0" },
-    { name = "google-cloud-aiplatform", specifier = ">=1.40.0" },
-    { name = "librosa", specifier = ">=0.11.0" },
-    { name = "litellm", specifier = ">=1.50" },
-    { name = "matplotlib", specifier = ">=3.10.9" },
-    { name = "python-multipart", specifier = ">=0.0.32" },
-    { name = "requests", specifier = ">=2.31" },
-    { name = "uvicorn", specifier = ">=0.27.0" },
-]
-
-[[package]]
 name = "google-api-core"
 version = "2.38.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4446,6 +4417,35 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b5/b4/205b0d5241d934e8add0c38aa924c4f9fb7330834ff11e5444db964ec3f9/starlette-1.6.0.tar.gz", hash = "sha256:d4e3ac5e546444960c710297a3c9fc3f7ebae1b7e963f3d36173b49da535be9b", size = 2716969, upload-time = "2026-08-08T18:27:57.512Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/cb/6a6a47d5b464bd08695d254f3da6e7986cc70c9fa5d778eda57538edfe56/starlette-1.6.0-py3-none-any.whl", hash = "sha256:a86dd39d14bb45f85a3d18525215a9ef0cfd1f192ac793220e72598c90335f0c", size = 75969, upload-time = "2026-08-08T18:27:56.196Z" },
+]
+
+[[package]]
+name = "studio-copilot"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "fastapi" },
+    { name = "google-cloud-aiplatform" },
+    { name = "librosa", version = "0.11.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "librosa", version = "1.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "litellm" },
+    { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "matplotlib", version = "3.11.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "python-multipart" },
+    { name = "requests" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.109.0" },
+    { name = "google-cloud-aiplatform", specifier = ">=1.40.0" },
+    { name = "librosa", specifier = ">=0.11.0" },
+    { name = "litellm", specifier = ">=1.50" },
+    { name = "matplotlib", specifier = ">=3.10.9" },
+    { name = "python-multipart", specifier = ">=0.0.32" },
+    { name = "requests", specifier = ">=2.31" },
+    { name = "uvicorn", specifier = ">=0.27.0" },
 ]
 
 [[package]]

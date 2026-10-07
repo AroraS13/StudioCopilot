@@ -15,7 +15,7 @@ from pathlib import Path
 import librosa
 import numpy as np
 
-from project_state import UPDATE_PROJECT_STATE_TOOL, update_project_state
+from project_state import UPDATE_PROJECT_STATE_TOOL, guarded_update_project_state, update_project_state
 
 AUDIO_UPLOAD_DIR = Path(
     os.getenv("AUDIO_UPLOAD_DIR", "/tmp/studio_copilot_audio")
@@ -516,6 +516,84 @@ def build_arrangement(
 MUSICBRAINZ_API_URL = "https://musicbrainz.org/ws/2/recording/"
 _LAST_MUSICBRAINZ_REQUEST = 0.0
 
+# MusicBrainz asks ordinary clients to stay around one request per second.
+MUSICBRAINZ_MIN_INTERVAL_SECONDS = 1.05
+MUSICBRAINZ_MAX_ATTEMPTS = 3
+MUSICBRAINZ_BACKOFF_SECONDS = 1.0
+MUSICBRAINZ_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+# (normalized title, normalized artist) -> successful lookup result JSON.
+_REFERENCE_LOOKUP_CACHE: dict[tuple[str, str], str] = {}
+REFERENCE_LOOKUP_CACHE_SIZE = 128
+
+
+def _musicbrainz_get(params: dict, headers: dict):
+    """GET with request spacing and bounded retries for transient failures.
+
+    Returns (response, None) on an HTTP 2xx, otherwise (None, error_dict).
+    """
+    global _LAST_MUSICBRAINZ_REQUEST
+
+    error = None
+
+    for attempt in range(1, MUSICBRAINZ_MAX_ATTEMPTS + 1):
+        if attempt > 1:
+            time.sleep(MUSICBRAINZ_BACKOFF_SECONDS * 2 ** (attempt - 2))
+
+        elapsed = time.monotonic() - _LAST_MUSICBRAINZ_REQUEST
+        if elapsed < MUSICBRAINZ_MIN_INTERVAL_SECONDS:
+            time.sleep(MUSICBRAINZ_MIN_INTERVAL_SECONDS - elapsed)
+
+        try:
+            response = requests.get(
+                MUSICBRAINZ_API_URL,
+                params=params,
+                headers=headers,
+                timeout=10,
+            )
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            error = {
+                "error": "MusicBrainz could not be reached or did not respond in time.",
+                "details": type(exc).__name__,
+            }
+            continue
+        except requests.RequestException as exc:
+            return None, {
+                "error": "Could not retrieve reference-track data from MusicBrainz.",
+                "details": str(exc),
+                "attempts": attempt,
+                "action": "Tell the user the lookup failed. Do not guess the metadata.",
+            }
+        finally:
+            _LAST_MUSICBRAINZ_REQUEST = time.monotonic()
+
+        if response.ok:
+            return response, None
+
+        error = {
+            "error": (
+                "MusicBrainz is temporarily rate-limiting or unavailable."
+                if response.status_code in MUSICBRAINZ_RETRYABLE_STATUS
+                else "MusicBrainz rejected the lookup request."
+            ),
+            "status_code": response.status_code,
+        }
+        if response.status_code not in MUSICBRAINZ_RETRYABLE_STATUS:
+            return None, {
+                **error,
+                "attempts": attempt,
+                "action": "Tell the user the lookup failed. Do not guess the metadata.",
+            }
+
+    return None, {
+        **error,
+        "attempts": MUSICBRAINZ_MAX_ATTEMPTS,
+        "action": (
+            "Tell the user the reference lookup is temporarily unavailable and "
+            "suggest trying again shortly. Do not guess the metadata."
+        ),
+    }
+
 
 def _musicbrainz_artist_name(artist_credit: list) -> str:
     """Turn MusicBrainz artist-credit data into a readable artist string."""
@@ -667,8 +745,6 @@ def lookup_reference_track(
     Use this when the user names an existing song as a production reference
     and factual metadata such as track duration is needed.
     """
-    global _LAST_MUSICBRAINZ_REQUEST
-
     if not isinstance(track_name, str) or not track_name.strip():
         return json.dumps({
             "error": "track_name must be a non-empty song title.",
@@ -683,6 +759,10 @@ def lookup_reference_track(
         else:
             artist = artist.strip()
 
+    cache_key = (_normalize_music_text(track_name), _normalize_music_text(artist))
+    if cache_key in _REFERENCE_LOOKUP_CACHE:
+        return _REFERENCE_LOOKUP_CACHE[cache_key]
+
     escaped_track = _escape_musicbrainz_query(track_name)
 
     if artist:
@@ -694,64 +774,41 @@ def lookup_reference_track(
     else:
         query = f'recording:"{escaped_track}"'
 
-    # MusicBrainz asks ordinary clients to stay around one request per second.
-    elapsed = time.monotonic() - _LAST_MUSICBRAINZ_REQUEST
-    if elapsed < 1.05:
-        time.sleep(1.05 - elapsed)
-
     user_agent = os.getenv(
         "MUSICBRAINZ_USER_AGENT",
         "StudioCopilot/0.1 (Columbia University student project)"
     )
 
-    try:
-        response = requests.get(
-            MUSICBRAINZ_API_URL,
-            params={
-                "query": query,
-                "fmt": "json",
-                "limit": 5,
-            },
-            headers={
-                "User-Agent": user_agent
-            },
-            timeout=10,
-        )
+    response, error = _musicbrainz_get(
+        params={
+            "query": query,
+            "fmt": "json",
+            "limit": 5,
+        },
+        headers={
+            "User-Agent": user_agent
+        },
+    )
 
-        _LAST_MUSICBRAINZ_REQUEST = time.monotonic()
-
-        if response.status_code == 503:
-            return json.dumps({
-                "error": "MusicBrainz is temporarily rate-limiting or unavailable.",
-                "action": "Try the reference-track lookup again shortly."
-            })
-
-        response.raise_for_status()
-
-    except requests.Timeout:
-        return json.dumps({
-            "error": "MusicBrainz did not respond before the request timed out.",
-            "action": "Try the lookup again or use a different reference track."
-        })
-
-    except requests.RequestException as exc:
-        return json.dumps({
-            "error": "Could not retrieve reference-track data from MusicBrainz.",
-            "details": str(exc),
-            "action": (
-                "Check the internet connection or try the lookup again."
-            )
-        })
+    if error:
+        return json.dumps(error)
 
     try:
         data = response.json()
+        if not isinstance(data, dict):
+            raise ValueError("unexpected JSON shape")
     except ValueError:
         return json.dumps({
             "error": "MusicBrainz returned a response that could not be parsed.",
             "action": "Try the lookup again."
         })
 
-    recordings = data.get("recordings", [])
+    recordings = data.get("recordings")
+    recordings = (
+        [recording for recording in recordings if isinstance(recording, dict)]
+        if isinstance(recordings, list)
+        else []
+    )
 
     if not recordings:
         return json.dumps({
@@ -857,7 +914,11 @@ def lookup_reference_track(
         ),
     }
 
-    return json.dumps(result)
+    result_json = json.dumps(result)
+    if len(_REFERENCE_LOOKUP_CACHE) >= REFERENCE_LOOKUP_CACHE_SIZE:
+        _REFERENCE_LOOKUP_CACHE.pop(next(iter(_REFERENCE_LOOKUP_CACHE)))
+    _REFERENCE_LOOKUP_CACHE[cache_key] = result_json
+    return result_json
 
 def _template_correlation(a: np.ndarray, b: np.ndarray) -> float:
     """Correlation between two pitch-class profiles without NaN failures."""
@@ -873,6 +934,10 @@ def _template_correlation(a: np.ndarray, b: np.ndarray) -> float:
         return 0.0
 
     return float(np.dot(a, b) / denominator)
+
+
+# Below this template-correlation margin the top two key candidates are near-tied.
+KEY_AMBIGUITY_MARGIN = 0.05
 
 
 def _estimate_key(chroma: np.ndarray) -> dict:
@@ -1170,6 +1235,535 @@ def _candidate_structure_boundaries(
         }
         for item in selected
     ]
+
+
+# --- Producer summary: deterministic, conservative interpretation ---
+# Thresholds are deliberately wide so small differences read as "similar"
+# instead of being exaggerated into a producer takeaway.
+
+LEVEL_SIMILAR_DB = 1.5  # median signal levels closer than this are "about the same"
+LEVEL_NOTICEABLE_DB = 4.0  # 1.5-4 dB is "slightly", 4-10 dB is "noticeably"
+LEVEL_LARGE_DB = 10.0  # 10 dB or more is "much"
+ACTIVITY_SIMILAR_PCT = 10.0  # onset-rate differences under this are "similar"
+ACTIVITY_NOTICEABLE_PCT = 30.0  # 10-30% is "somewhat", 30%+ is "considerably"
+BRIGHTNESS_SIMILAR_PCT = 8.0  # centroid differences under this are "similar"
+BRIGHTNESS_NOTICEABLE_PCT = 20.0  # 8-20% is "somewhat", 20%+ is "noticeably"
+TRANSITION_WINDOW_SECONDS = 6.0  # audio compared on each side of a candidate boundary
+MAX_NOTABLE_OBSERVATIONS = 5
+TRACK_BASELINE_CACHE_SIZE = 32
+
+# (file name, mtime_ns, size) -> whole-track medians used as the region baseline.
+_TRACK_BASELINE_CACHE: dict[tuple, dict] = {}
+
+PRODUCER_SUMMARY_LIMITATIONS = [
+    "Only entries in 'transitions' are detected feature changes; coarse window "
+    "edges, the track midpoint, and selection boundaries are not transitions.",
+    "Less high-frequency emphasis (a lower spectral centroid) does not show that "
+    "bass, low-frequency, or low-mid content increased.",
+    "Detected rhythmic activity counts attacks; it does not identify instruments, "
+    "drums, or layers.",
+    "Signal level is a relative measurement, not perceived loudness or LUFS.",
+]
+
+
+def _relative_percent(value: float | None, baseline: float | None) -> float | None:
+    """Percent change from baseline, or None when the baseline is ~0."""
+    if value is None or baseline is None or abs(baseline) < 1e-9:
+        return None
+    return (value - baseline) / abs(baseline) * 100.0
+
+
+def _format_range(start: float, end: float) -> str:
+    return f"{_format_timestamp(start)}–{_format_timestamp(end)}"
+
+
+def _describe_relative_level(delta_db: float, target: str) -> str:
+    """Phrase that reads after 'sits', e.g. 'slightly higher in average signal level than X'."""
+    # Categorize the displayed (rounded) value so the label and number agree.
+    delta_db = round(delta_db, 1)
+    magnitude = abs(delta_db)
+
+    if magnitude < LEVEL_SIMILAR_DB:
+        return f"at about the same average signal level as {target}"
+
+    if magnitude < LEVEL_NOTICEABLE_DB:
+        degree = "slightly"
+    elif magnitude < LEVEL_LARGE_DB:
+        degree = "noticeably"
+    else:
+        degree = "much"
+
+    direction, side = ("higher", "above") if delta_db > 0 else ("lower", "below")
+    return (
+        f"{degree} {direction} in average signal level than {target} "
+        f"(about {magnitude:.1f} dB {side})"
+    )
+
+
+def _describe_rhythmic_activity(percent: float | None, target: str) -> str:
+    """Phrase that reads after 'has', e.g. 'somewhat more detected rhythmic activity than X'."""
+    if percent is None:
+        return f"detected rhythmic activity that cannot be compared with {target}"
+
+    percent = round(percent)
+    magnitude = abs(percent)
+
+    if magnitude < ACTIVITY_SIMILAR_PCT:
+        return f"similar detected rhythmic activity to {target}"
+
+    degree = "somewhat" if magnitude < ACTIVITY_NOTICEABLE_PCT else "considerably"
+    direction = "more" if percent > 0 else "less"
+    return (
+        f"{degree} {direction} detected rhythmic activity than {target} "
+        f"(about {magnitude:.0f}% {'more' if percent > 0 else 'fewer'} detected attacks per second)"
+    )
+
+
+def _describe_brightness(percent: float | None, target: str) -> str:
+    """Phrase that reads after 'has'. Never implies bass, low end, warmth, or mids."""
+    if percent is None:
+        return f"high-frequency emphasis that cannot be compared with {target}"
+
+    percent = round(percent)
+    magnitude = abs(percent)
+
+    if magnitude < BRIGHTNESS_SIMILAR_PCT:
+        return f"similar high-frequency emphasis to {target}"
+
+    noticeable = magnitude >= BRIGHTNESS_NOTICEABLE_PCT
+    degree = "noticeably" if noticeable else "somewhat"
+    direction = "more" if percent > 0 else "less"
+    hearing = ""
+    if noticeable:
+        hearing = ", so it may sound somewhat brighter" if percent > 0 else ", so it may sound somewhat darker"
+
+    return (
+        f"{degree} {direction} high-frequency emphasis than {target}{hearing} "
+        f"(brightness measure about {magnitude:.0f}% {'higher' if percent > 0 else 'lower'})"
+    )
+
+
+def _track_baseline(file_path: Path, y_full: np.ndarray, sr: int, hop_length: int) -> dict:
+    """Whole-track medians, computed exactly like a full-track analysis and cached."""
+    stat = file_path.stat()
+    key = (file_path.name, stat.st_mtime_ns, stat.st_size)
+
+    if key in _TRACK_BASELINE_CACHE:
+        return _TRACK_BASELINE_CACHE[key]
+
+    onset_env = librosa.onset.onset_strength(y=y_full, sr=sr, hop_length=hop_length)
+    onset_frames = librosa.onset.onset_detect(onset_envelope=onset_env, sr=sr, hop_length=hop_length)
+    rms = librosa.feature.rms(y=y_full, hop_length=hop_length)[0]
+    rms_db = 20.0 * np.log10(np.maximum(rms, 1e-10))
+    centroid = librosa.feature.spectral_centroid(y=y_full, sr=sr, hop_length=hop_length)[0]
+
+    baseline = {
+        "median_rms_dbfs": round(float(np.median(rms_db)), 2),
+        "onset_density_per_second": round(len(onset_frames) / (len(y_full) / sr), 3),
+        "median_spectral_centroid_hz": round(float(np.median(centroid)), 1),
+    }
+    _store_track_baseline(key, baseline)
+    return baseline
+
+
+def _store_track_baseline(key: tuple, baseline: dict) -> None:
+    if key not in _TRACK_BASELINE_CACHE and len(_TRACK_BASELINE_CACHE) >= TRACK_BASELINE_CACHE_SIZE:
+        _TRACK_BASELINE_CACHE.pop(next(iter(_TRACK_BASELINE_CACHE)))
+    _TRACK_BASELINE_CACHE[key] = baseline
+
+
+def _describe_transitions(
+    boundaries: list[dict],
+    rms_db: np.ndarray,
+    spectral_centroid: np.ndarray,
+    onset_times: np.ndarray,
+    sr: int,
+    hop_length: int,
+    time_offset: float,
+    duration: float,
+) -> list[dict]:
+    """Describe what measurably changes across each detected candidate boundary.
+
+    Only candidate_structure_boundaries are used, so a transition is never
+    reported at a window edge, midpoint, or selection boundary.
+    """
+    frame_count = min(len(rms_db), len(spectral_centroid))
+    frame_times = librosa.frames_to_time(np.arange(frame_count), sr=sr, hop_length=hop_length)
+    rms_db = rms_db[:frame_count]
+    spectral_centroid = spectral_centroid[:frame_count]
+    transitions = []
+
+    for boundary in boundaries:
+        time_seconds = boundary["time_seconds"]
+        local = time_seconds - time_offset
+        before = (max(0.0, local - TRANSITION_WINDOW_SECONDS), local)
+        after = (local, min(duration, local + TRANSITION_WINDOW_SECONDS))
+        entry = {
+            "time_seconds": time_seconds,
+            "timestamp": _format_timestamp(time_seconds),
+            "change_strength": boundary["change_strength"],
+            "level_change_db": None,
+            "onset_change_percent": None,
+            "centroid_change_percent": None,
+        }
+        text = (
+            f"A candidate feature change is detected at {entry['timestamp']} "
+            f"(detector strength {boundary['change_strength']:.2f})."
+        )
+
+        mask_before = (frame_times >= before[0]) & (frame_times < before[1])
+        mask_after = (frame_times >= after[0]) & (frame_times < after[1])
+
+        if (
+            before[1] - before[0] >= 1.0
+            and after[1] - after[0] >= 1.0
+            and np.any(mask_before)
+            and np.any(mask_after)
+        ):
+            level_change = float(np.median(rms_db[mask_after]) - np.median(rms_db[mask_before]))
+            rate_before = float(np.sum((onset_times >= before[0]) & (onset_times < before[1]))) / (before[1] - before[0])
+            rate_after = float(np.sum((onset_times >= after[0]) & (onset_times < after[1]))) / (after[1] - after[0])
+            onset_change = _relative_percent(rate_after, rate_before)
+            centroid_change = _relative_percent(
+                float(np.median(spectral_centroid[mask_after])),
+                float(np.median(spectral_centroid[mask_before])),
+            )
+            entry["level_change_db"] = round(level_change, 1)
+            entry["onset_change_percent"] = None if onset_change is None else round(onset_change, 1)
+            entry["centroid_change_percent"] = None if centroid_change is None else round(centroid_change, 1)
+
+            target = f"the {TRANSITION_WINDOW_SECONDS:.0f} seconds before it"
+            text += (
+                f" The {TRANSITION_WINDOW_SECONDS:.0f} seconds after it sit "
+                f"{_describe_relative_level(level_change, target)}, have "
+                f"{_describe_rhythmic_activity(onset_change, target)}, and have "
+                f"{_describe_brightness(centroid_change, target)}."
+            )
+
+        entry["text"] = text
+        transitions.append(entry)
+
+    return transitions
+
+
+def _window_name(index: int, count: int, segment: dict) -> str:
+    if index == 0:
+        return "opening"
+    if index == count - 1:
+        return "ending"
+    return f"window from {_format_range(segment['start_seconds'], segment['end_seconds'])}"
+
+
+def _window_fields(segment: dict) -> dict:
+    return {
+        "segment": segment["segment"],
+        "start_seconds": segment["start_seconds"],
+        "end_seconds": segment["end_seconds"],
+    }
+
+
+def _rank_observations(candidates: list[tuple[float, dict]]) -> list[dict]:
+    ranked = sorted(candidates, key=lambda item: item[0], reverse=True)
+    return [observation for _, observation in ranked[:MAX_NOTABLE_OBSERVATIONS]]
+
+
+def _build_full_track_summary(profile: list[dict], baseline: dict, transitions: list[dict]) -> dict:
+    """Notable, verified facts about the whole track from its coarse windows."""
+    summary = {
+        "scope": "full_track",
+        "baseline": baseline,
+        "notable_observations": [],
+        "level": {},
+        "rhythmic_activity": {},
+        "brightness": {},
+        "transitions": transitions,
+        "limitations": PRODUCER_SUMMARY_LIMITATIONS,
+    }
+
+    if not profile:
+        return summary
+
+    count = len(profile)
+    track_rms = baseline["median_rms_dbfs"]
+    track_onsets = baseline["onset_density_per_second"]
+    track_centroid = baseline["median_spectral_centroid_hz"]
+
+    level_delta = [segment["median_rms_dbfs"] - track_rms for segment in profile]
+    onset_pct = [_relative_percent(segment["onset_density_per_second"], track_onsets) for segment in profile]
+    centroid_pct = [_relative_percent(segment["median_spectral_centroid_hz"], track_centroid) for segment in profile]
+
+    middle = profile[1:-1] if count >= 3 else []
+    middle_median = float(np.median([segment["median_rms_dbfs"] for segment in middle])) if middle else None
+
+    candidates = []
+
+    # ---------- Level ----------
+    edges = [("opening", 0)] + ([("ending", count - 1)] if count >= 2 else [])
+    for name, index in edges:
+        segment = profile[index]
+        delta = level_delta[index]
+        versus_middle = None if middle_median is None else segment["median_rms_dbfs"] - middle_median
+
+        summary["level"][name] = {
+            **_window_fields(segment),
+            "relative_to_track_median_db": round(delta, 1),
+            "relative_to_middle_windows_db": None if versus_middle is None else round(versus_middle, 1),
+            "description": f"The {name} sits {_describe_relative_level(delta, 'the track-wide median')}.",
+        }
+
+        if abs(delta) >= LEVEL_SIMILAR_DB:
+            text = (
+                f"The {name} ({_format_range(segment['start_seconds'], segment['end_seconds'])}) sits "
+                f"{_describe_relative_level(delta, 'the track-wide median')}"
+            )
+            if versus_middle is not None and abs(versus_middle) >= LEVEL_SIMILAR_DB:
+                text += (
+                    f", and about {abs(versus_middle):.1f} dB {'above' if versus_middle > 0 else 'below'} "
+                    f"the median level of the middle windows "
+                    f"({_format_range(middle[0]['start_seconds'], middle[-1]['end_seconds'])})"
+                )
+            candidates.append((abs(delta) / LEVEL_NOTICEABLE_DB, {
+                "type": "level",
+                **_window_fields(segment),
+                "values": {
+                    "relative_to_track_median_db": round(delta, 1),
+                    "relative_to_middle_windows_db": None if versus_middle is None else round(versus_middle, 1),
+                },
+                "text": text + ".",
+            }))
+
+    if middle_median is not None:
+        summary["level"]["middle_windows"] = {
+            "segments": f"{middle[0]['segment']}-{middle[-1]['segment']}",
+            "start_seconds": middle[0]["start_seconds"],
+            "end_seconds": middle[-1]["end_seconds"],
+            "median_of_window_levels_dbfs": round(middle_median, 2),
+        }
+
+    lowest = min(range(count), key=lambda i: profile[i]["median_rms_dbfs"])
+    highest = max(range(count), key=lambda i: profile[i]["median_rms_dbfs"])
+    summary["level"]["lowest_window"] = {**_window_fields(profile[lowest]), "relative_to_track_median_db": round(level_delta[lowest], 1)}
+    summary["level"]["highest_window"] = {**_window_fields(profile[highest]), "relative_to_track_median_db": round(level_delta[highest], 1)}
+
+    # ---------- Rhythmic activity ----------
+    most_active = max(range(count), key=lambda i: profile[i]["onset_density_per_second"])
+    least_active = min(range(count), key=lambda i: profile[i]["onset_density_per_second"])
+
+    for key, index, rank in (("most_active_window", most_active, "highest"), ("least_active_window", least_active, "lowest")):
+        summary["rhythmic_activity"][key] = {
+            **_window_fields(profile[index]),
+            "onsets_per_second": profile[index]["onset_density_per_second"],
+            "relative_to_track_percent": None if onset_pct[index] is None else round(onset_pct[index], 1),
+            "rank": f"{rank} of {count} coarse windows",
+        }
+
+    for name, index in edges:
+        summary["rhythmic_activity"][name] = {
+            "relative_to_track_percent": None if onset_pct[index] is None else round(onset_pct[index], 1),
+            "description": f"The {name} has {_describe_rhythmic_activity(onset_pct[index], 'the track average')}.",
+        }
+
+    # Quiet windows that are still rhythmically active are easy to misread as sparse.
+    contrast_windows = set()
+    for index, segment in enumerate(profile):
+        pct = onset_pct[index]
+        if level_delta[index] <= -LEVEL_LARGE_DB and pct is not None and pct >= 0:
+            contrast_windows.add(index)
+            rank_clause = (
+                f", the highest detected attack rate of the {count} coarse windows"
+                if index == most_active else ""
+            )
+            candidates.append((abs(level_delta[index]) / LEVEL_NOTICEABLE_DB + 0.5, {
+                "type": "level_activity_contrast",
+                **_window_fields(segment),
+                "values": {
+                    "relative_to_track_median_db": round(level_delta[index], 1),
+                    "onset_relative_to_track_percent": round(pct, 1),
+                },
+                "text": (
+                    f"Although the {_window_name(index, count, segment)} sits about "
+                    f"{abs(level_delta[index]):.1f} dB below the track-wide median level, it is not "
+                    f"rhythmically sparse: it has {_describe_rhythmic_activity(pct, 'the track average')}"
+                    f"{rank_clause}."
+                ),
+            }))
+
+    for index, rank, threshold_ok in (
+        (most_active, "highest", onset_pct[most_active] is not None and onset_pct[most_active] >= ACTIVITY_SIMILAR_PCT),
+        (least_active, "lowest", onset_pct[least_active] is not None and onset_pct[least_active] <= -ACTIVITY_SIMILAR_PCT),
+    ):
+        if not threshold_ok or index in contrast_windows:
+            continue
+        pct = onset_pct[index]
+        candidates.append((abs(pct) / ACTIVITY_NOTICEABLE_PCT, {
+            "type": "rhythmic_activity",
+            **_window_fields(profile[index]),
+            "values": {"onset_relative_to_track_percent": round(pct, 1)},
+            "text": (
+                f"The {_window_name(index, count, profile[index])} has the {rank} detected rhythmic "
+                f"activity of the {count} coarse windows (about {abs(pct):.0f}% "
+                f"{'above' if pct > 0 else 'below'} the track average)."
+            ),
+        }))
+
+    # ---------- Brightness ----------
+    brightest = max(range(count), key=lambda i: profile[i]["median_spectral_centroid_hz"])
+    darkest = min(range(count), key=lambda i: profile[i]["median_spectral_centroid_hz"])
+
+    for key, index, rank in (("brightest_window", brightest, "most"), ("darkest_window", darkest, "least")):
+        summary["brightness"][key] = {
+            **_window_fields(profile[index]),
+            "relative_to_track_percent": None if centroid_pct[index] is None else round(centroid_pct[index], 1),
+            "rank": f"{rank} high-frequency emphasis of {count} coarse windows",
+        }
+
+    for name, index in edges:
+        summary["brightness"][name] = {
+            "relative_to_track_percent": None if centroid_pct[index] is None else round(centroid_pct[index], 1),
+            "description": f"The {name} has {_describe_brightness(centroid_pct[index], 'the track as a whole')}.",
+        }
+
+    for index, rank, threshold_ok in (
+        (brightest, "most", centroid_pct[brightest] is not None and centroid_pct[brightest] >= BRIGHTNESS_SIMILAR_PCT),
+        (darkest, "least", centroid_pct[darkest] is not None and centroid_pct[darkest] <= -BRIGHTNESS_SIMILAR_PCT),
+    ):
+        if not threshold_ok:
+            continue
+        pct = centroid_pct[index]
+        candidates.append((abs(pct) / BRIGHTNESS_NOTICEABLE_PCT, {
+            "type": "brightness",
+            **_window_fields(profile[index]),
+            "values": {"centroid_relative_to_track_percent": round(pct, 1)},
+            "text": (
+                f"The {_window_name(index, count, profile[index])} has the {rank} high-frequency "
+                f"emphasis of the {count} coarse windows (brightness measure about {abs(pct):.0f}% "
+                f"{'above' if pct > 0 else 'below'} the track median)."
+            ),
+        }))
+
+    # ---------- Transitions ----------
+    if transitions:
+        strongest = max(transitions, key=lambda item: item["change_strength"])
+        candidates.append((1.0 + strongest["change_strength"], {
+            "type": "transition",
+            "start_seconds": strongest["time_seconds"],
+            "end_seconds": strongest["time_seconds"],
+            "values": {
+                "change_strength": strongest["change_strength"],
+                "level_change_db": strongest["level_change_db"],
+                "onset_change_percent": strongest["onset_change_percent"],
+                "centroid_change_percent": strongest["centroid_change_percent"],
+            },
+            "text": f"Strongest of {len(transitions)} candidate transitions. {strongest['text']}",
+        }))
+
+    summary["notable_observations"] = _rank_observations(candidates)
+    return summary
+
+
+def _build_region_summary(
+    region_rms: float,
+    region_onsets: float,
+    region_centroid: float,
+    profile: list[dict],
+    baseline: dict,
+    transitions: list[dict],
+    start: float,
+    end: float,
+) -> dict:
+    """Verified facts about an exact region, relative to the whole track."""
+    level_delta = region_rms - baseline["median_rms_dbfs"]
+    onset_pct = _relative_percent(region_onsets, baseline["onset_density_per_second"])
+    centroid_pct = _relative_percent(region_centroid, baseline["median_spectral_centroid_hz"])
+    region_label = f"This region ({_format_range(start, end)})"
+    track = "the track as a whole"
+
+    dips = []
+    for segment in profile:
+        relative = segment["rms_relative_to_track_db"]
+        if relative > -LEVEL_NOTICEABLE_DB:
+            continue
+        activity = _relative_percent(segment["onset_density_per_second"], region_onsets)
+        dips.append({
+            **_window_fields(segment),
+            "relative_to_region_median_db": round(relative, 1),
+            "onset_relative_to_region_percent": None if activity is None else round(activity, 1),
+            "text": (
+                f"The signal level dips temporarily from "
+                f"{_format_range(segment['start_seconds'], segment['end_seconds'])} (about "
+                f"{abs(relative):.1f} dB below this region's median level); that window has "
+                f"{_describe_rhythmic_activity(activity, 'the region as a whole')}."
+            ),
+        })
+
+    summary = {
+        "scope": "region",
+        "baseline": baseline,
+        "notable_observations": [],
+        "level": {
+            "relative_to_track_median_db": round(level_delta, 1),
+            "description": f"{region_label} sits {_describe_relative_level(level_delta, 'the track-wide median')}.",
+            "temporary_dips": dips,
+        },
+        "rhythmic_activity": {
+            "relative_to_track_percent": None if onset_pct is None else round(onset_pct, 1),
+            "description": f"{region_label} has {_describe_rhythmic_activity(onset_pct, 'the track average')}.",
+        },
+        "brightness": {
+            "relative_to_track_percent": None if centroid_pct is None else round(centroid_pct, 1),
+            "description": f"{region_label} has {_describe_brightness(centroid_pct, track)}.",
+        },
+        "transitions": transitions,
+        "limitations": PRODUCER_SUMMARY_LIMITATIONS,
+    }
+
+    candidates = []
+    if abs(level_delta) >= LEVEL_SIMILAR_DB:
+        candidates.append((abs(level_delta) / LEVEL_NOTICEABLE_DB, {
+            "type": "level", "start_seconds": start, "end_seconds": end,
+            "values": {"relative_to_track_median_db": round(level_delta, 1)},
+            "text": summary["level"]["description"],
+        }))
+    if onset_pct is not None and abs(onset_pct) >= ACTIVITY_SIMILAR_PCT:
+        candidates.append((abs(onset_pct) / ACTIVITY_NOTICEABLE_PCT, {
+            "type": "rhythmic_activity", "start_seconds": start, "end_seconds": end,
+            "values": {"onset_relative_to_track_percent": round(onset_pct, 1)},
+            "text": summary["rhythmic_activity"]["description"],
+        }))
+    if centroid_pct is not None and abs(centroid_pct) >= BRIGHTNESS_SIMILAR_PCT:
+        candidates.append((abs(centroid_pct) / BRIGHTNESS_NOTICEABLE_PCT, {
+            "type": "brightness", "start_seconds": start, "end_seconds": end,
+            "values": {"centroid_relative_to_track_percent": round(centroid_pct, 1)},
+            "text": summary["brightness"]["description"],
+        }))
+    if dips:
+        deepest = min(dips, key=lambda item: item["relative_to_region_median_db"])
+        candidates.append((abs(deepest["relative_to_region_median_db"]) / LEVEL_NOTICEABLE_DB, {
+            "type": "temporary_dip",
+            "start_seconds": deepest["start_seconds"], "end_seconds": deepest["end_seconds"],
+            "values": {
+                "relative_to_region_median_db": deepest["relative_to_region_median_db"],
+                "onset_relative_to_region_percent": deepest["onset_relative_to_region_percent"],
+            },
+            "text": deepest["text"],
+        }))
+    for transition in transitions:
+        candidates.append((1.0 + transition["change_strength"], {
+            "type": "transition",
+            "start_seconds": transition["time_seconds"], "end_seconds": transition["time_seconds"],
+            "values": {
+                "change_strength": transition["change_strength"],
+                "level_change_db": transition["level_change_db"],
+                "onset_change_percent": transition["onset_change_percent"],
+                "centroid_change_percent": transition["centroid_change_percent"],
+            },
+            "text": transition["text"],
+        }))
+
+    summary["notable_observations"] = _rank_observations(candidates)
+    return summary
+
+
 def analyze_audio_track(
     audio_file_id: str,
     start_seconds: float | None = None,
@@ -1239,6 +1833,22 @@ def analyze_audio_track(
 
         full_duration = len(y_full) / sr
         _AUDIO_DURATION_CACHE[safe_file_id] = full_duration
+
+        for name, value in (("start_seconds", start_seconds), ("end_seconds", end_seconds)):
+            if value is None:
+                continue
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+            ):
+                return json.dumps({
+                    "error": f"{name} must be a finite number of seconds.",
+                    "action": (
+                        "Convert MM:SS timestamps to seconds (e.g. 1:10 -> 70) "
+                        "or omit the range to analyze the whole track."
+                    ),
+                })
 
         start = (
             float(start_seconds)
@@ -1539,8 +2149,17 @@ def analyze_audio_track(
                     "complex material."
                 ),
                 (
-                    "RMS values are signal-level measurements in dBFS, "
-                    "not LUFS loudness measurements."
+                    "RMS values are signal-level measurements in dBFS for "
+                    "relative comparison, not LUFS or perceived loudness."
+                ),
+                (
+                    "crest_factor_proxy_db is a rough peak-to-average contrast. "
+                    "It is not headroom and not musical dynamic range."
+                ),
+                (
+                    "Onset density and spectral centroid describe rhythmic "
+                    "activity and brightness only; they do not identify "
+                    "instruments, layers, EQ, or low-end balance."
                 ),
                 (
                     "Candidate structure boundaries indicate relatively "
@@ -1549,6 +2168,74 @@ def analyze_audio_track(
                 ),
             ],
         }
+
+        key_margin = key_estimate.get("score_margin_over_second_choice")
+        if (
+            key_estimate.get("estimated_key")
+            and isinstance(key_margin, (int, float))
+            and key_margin < KEY_AMBIGUITY_MARGIN
+        ):
+            result["interpretation_notes"].insert(0, (
+                f"Key estimate is ambiguous: {key_estimate['estimated_key']} and "
+                f"{key_estimate.get('second_choice')} score almost equally. "
+                "Present the key as uncertain."
+            ))
+
+        is_full_track = start <= 0.5 and end >= full_duration - 0.5
+
+        result["interpretation_notes"].append(
+            "producer_summary is a deterministic, conservative interpretation of these "
+            "measurements. Use it as the primary basis for producer-facing explanations "
+            "and keep its direction and magnitude; use the raw fields for technical detail."
+        )
+        if not is_full_track:
+            result["interpretation_notes"].append(
+                "In this region analysis, energy_profile rms_relative_to_track_db is relative "
+                "to this region's median, not the whole track; producer_summary.baseline "
+                "holds the whole-track values."
+            )
+
+        try:
+            transitions = _describe_transitions(
+                boundaries=boundaries,
+                rms_db=rms_db,
+                spectral_centroid=spectral_centroid,
+                onset_times=onset_times,
+                sr=sr,
+                hop_length=hop_length,
+                time_offset=start,
+                duration=duration,
+            )
+
+            if is_full_track:
+                baseline = {
+                    "median_rms_dbfs": result["dynamics"]["median_rms_dbfs"],
+                    "onset_density_per_second": result["rhythm"]["onset_density_per_second"],
+                    "median_spectral_centroid_hz": result["spectral"]["median_spectral_centroid_hz"],
+                }
+                stat = file_path.stat()
+                _store_track_baseline((file_path.name, stat.st_mtime_ns, stat.st_size), baseline)
+                producer_summary = _build_full_track_summary(energy_profile, baseline, transitions)
+            else:
+                producer_summary = _build_region_summary(
+                    region_rms=result["dynamics"]["median_rms_dbfs"],
+                    region_onsets=result["rhythm"]["onset_density_per_second"],
+                    region_centroid=result["spectral"]["median_spectral_centroid_hz"],
+                    profile=energy_profile,
+                    baseline=_track_baseline(file_path, y_full, sr, hop_length),
+                    transitions=transitions,
+                    start=round(start, 2),
+                    end=round(end, 2),
+                )
+        except Exception as exc:
+            producer_summary = {
+                "unavailable": (
+                    f"producer_summary could not be computed ({type(exc).__name__}). "
+                    "Rely on the raw fields and interpretation_notes."
+                )
+            }
+
+        result["producer_summary"] = producer_summary
 
         return json.dumps(result)
 
@@ -1945,7 +2632,16 @@ TOOLS = [
                 "workspace context gives selected timestamps, pass those exact values. "
                 "If the tool reports that a requested range is beyond the track, "
                 "report that to the user; never re-run it with a different range "
-                "in its place."
+                "in its place. "
+                "Results contain raw measurements plus producer_summary, a "
+                "deterministic, conservative interpretation computed from them "
+                "(level, rhythmic activity, and brightness relative to explicit "
+                "baselines, notable_observations, and detected candidate "
+                "transitions). Base producer-facing explanations on "
+                "producer_summary without changing its direction or magnitude; use "
+                "the raw fields when the user asks for technical detail. Treat "
+                "interpretation_notes and producer_summary.limitations as binding "
+                "caveats."
             ),
             "parameters": {
                 "type": "object",
@@ -2030,9 +2726,10 @@ TOOLS = [
                     "reason": {
                         "type": "string",
                         "description": (
-                            "One sentence explaining why this region matters, "
-                            "citing measured values when available, e.g. "
-                            "'Median RMS is about 5 dB below the track median.'"
+                            "One plain-language sentence explaining why this "
+                            "region matters, grounded in measurements, e.g. "
+                            "'Sits about 5 dB lower in level than the rest of "
+                            "the track.'"
                         ),
                     },
                 },
@@ -2068,6 +2765,13 @@ def run_tool(name: str, args: dict, context: dict | None = None) -> str:
         if name in CONTEXT_TOOLS:
             if not context or "project_state" not in context:
                 return json.dumps({"error": f"{name} requires an active chat session."})
+            if name == "update_project_state" and "turn" in context:
+                return guarded_update_project_state(
+                    context["project_state"],
+                    context.get("audio_file_id"),
+                    context["turn"],
+                    **args,
+                )
             return TOOL_MAP[name](
                 context["project_state"],
                 context.get("audio_file_id"),
@@ -2075,6 +2779,16 @@ def run_tool(name: str, args: dict, context: dict | None = None) -> str:
             )
         return TOOL_MAP[name](**args)
     except TypeError as e:
-        return json.dumps({"error": f"Bad arguments for {name}: {e}"})
+        parameters = next(
+            (list(tool["function"]["parameters"].get("properties", {})) for tool in TOOLS if tool["function"]["name"] == name),
+            [],
+        )
+        return json.dumps({
+            "error": f"Bad arguments for {name}: {e}",
+            "action": (
+                f"Call {name} again with only these top-level arguments: "
+                f"{', '.join(parameters)}. Do not nest them under another key."
+            ),
+        })
     except Exception as e:
         return json.dumps({"error": f"{name} failed unexpectedly: {type(e).__name__}: {e}"})

@@ -2013,7 +2013,7 @@
         }
 
         function renderMarkdown(element, text) {
-            const rawHtml = marked.parse(text || "", {
+            const rawHtml = marked.parse(typeof text === "string" ? text : String(text ?? ""), {
                 gfm: true,
                 breaks: true,
             });
@@ -2082,18 +2082,22 @@
 
         function updateSessionFromToolCall(call) {
             const result = parseResult(call.result);
-            if (!result || typeof result !== "object") return;
+            if (!result || typeof result !== "object" || result.error) return;
 
-            if (call.name === "lookup_reference_track" && result.selected_match) {
+            if (
+                call.name === "lookup_reference_track" &&
+                result.selected_match &&
+                typeof result.selected_match === "object"
+            ) {
                 const ref = result.selected_match;
                 sessionState.reference = `${ref.title || "Track"} — ${ref.artist || "Unknown"}${
                     ref.duration ? ` (${ref.duration})` : ""
                 }`;
             }
 
-            if (call.name === "build_arrangement") {
-                const duration = result.actual_duration || "—";
-                const bars = result.total_bars ?? "—";
+            if (call.name === "build_arrangement" && Array.isArray(result.arrangement)) {
+                const duration = typeof result.actual_duration === "string" ? result.actual_duration : "—";
+                const bars = toFiniteNumber(result.total_bars) ?? "—";
                 sessionState.arrangement = `${duration} · ${bars} bars`;
             }
 
@@ -2110,7 +2114,7 @@
                 }
 
                 const key = result.key?.estimated_key;
-                if (key) {
+                if (typeof key === "string" && key) {
                     sessionState.key = `${key} est.`;
                 }
             }
@@ -2119,6 +2123,11 @@
         }
 
         function addToolCall(call) {
+            if (!call || typeof call !== "object") {
+                console.warn("Ignoring malformed tool call:", call);
+                return;
+            }
+
             const empty = activityLog.querySelector(".activity-empty");
             if (empty) empty.remove();
 
@@ -2137,7 +2146,7 @@
 
             const name = document.createElement("span");
             name.className = "activity-name";
-            name.textContent = call.name;
+            name.textContent = typeof call.name === "string" ? call.name : String(call.name ?? "unknown tool");
 
             header.appendChild(icon);
             header.appendChild(name);
@@ -3172,7 +3181,7 @@
             return (
                 `Compare the selected region ${selected} with the region ${other.relation} it, ` +
                 `${describeRange(other.start_seconds, other.end_seconds)}. ` +
-                "Analyze both exact ranges and explain the measurable differences."
+                "Analyze both exact ranges. What's the biggest difference, and why does it matter for the track?"
             );
         }
 
@@ -3230,7 +3239,7 @@
             } else if (action === "ask") {
                 userInput.focus();
             } else if (action === "analyze") {
-                send("Analyze the selected region and summarize its measurable characteristics.");
+                send("What's happening in the selected region? Analyze it and explain what I'd hear and why it matters.");
             } else if (action === "compare") {
                 send(comparePrompt(selection));
             }
@@ -3601,7 +3610,7 @@
 
             if (selection) {
                 const range = describeRange(selection.start_seconds, selection.end_seconds);
-                add("Analyze selection", `Analyze the selected region ${range} and summarize its measurable characteristics.`);
+                add("Analyze selection", `What's happening in the selected region ${range}? Analyze it and explain what I'd hear and why it matters.`);
                 add("Compare selection", comparePrompt(selection));
                 add("Ask about selection", `About the selected region ${range}: `);
             }
@@ -3621,7 +3630,8 @@
                     add(
                         "Inspect strongest transition",
                         `Compare the audio just before and after the strongest candidate transition at ${formatPreciseTime(transition.time)}: ` +
-                        `analyze ${describeRange(before, transition.time)} and ${describeRange(transition.time, after)} as exact ranges.`
+                        `analyze ${describeRange(before, transition.time)} and ${describeRange(transition.time, after)} as exact ranges, ` +
+                        "and tell me how the feel changes across it."
                     );
                 }
 
@@ -3629,9 +3639,9 @@
                 if (extremes) {
                     add(
                         "Compare energy regions",
-                        `Compare the lowest-RMS segment ${describeRange(extremes.low.start, extremes.low.end)} ` +
-                        `with the highest-RMS segment ${describeRange(extremes.high.start, extremes.high.end)}. ` +
-                        "Analyze both exact ranges and explain the measurable differences."
+                        `Compare the lowest-level segment ${describeRange(extremes.low.start, extremes.low.end)} ` +
+                        `with the highest-level segment ${describeRange(extremes.high.start, extremes.high.end)}. ` +
+                        "Analyze both exact ranges. What's the biggest difference, and why does it matter for the track?"
                     );
                 }
 
@@ -3868,16 +3878,28 @@
                     body: JSON.stringify(payload),
                 });
 
-                const data = await res.json();
+                const data = await res.json().catch(() => null);
+                const isObject = data !== null && typeof data === "object" && !Array.isArray(data);
 
-                if (!res.ok) {
-                    throw new Error(data.detail || data.response || "Chat request failed");
+                if (!res.ok || !isObject) {
+                    const detail = isObject && (typeof data.detail === "string" ? data.detail : data.response);
+                    throw new Error(typeof detail === "string" && detail ? detail : `Chat request failed (HTTP ${res.status})`);
                 }
 
-                sessionId = data.session_id;
+                if (typeof data.response !== "string" || ("tool_calls" in data && !Array.isArray(data.tool_calls))) {
+                    throw new Error("Studio Copilot returned a malformed response. Please try again.");
+                }
 
-                for (const call of data.tool_calls || []) {
-                    addToolCall(call);
+                if (typeof data.session_id === "string" && data.session_id) {
+                    sessionId = data.session_id;
+                }
+
+                for (const call of Array.isArray(data.tool_calls) ? data.tool_calls : []) {
+                    try {
+                        addToolCall(call);
+                    } catch (error) {
+                        console.warn("Tool call display skipped:", error);
+                    }
                 }
 
                 const responseContent = loading.querySelector(".content");

@@ -12,6 +12,7 @@ model or the browser.
 import copy
 import json
 import math
+import re
 
 MAX_FINDINGS = 10
 MAX_DECISIONS = 8
@@ -29,6 +30,49 @@ DURATION_TOLERANCE_SECONDS = 1.0
 
 FINDING_SOURCES = ("measurement", "user")
 NEXT_ACTION_STATUSES = ("pending", "done")
+
+# Analysis requests are tasks, not creative goals.
+TASK_GOAL_PATTERN = re.compile(
+    r"^\s*(please\s+)?(analy[sz]e|determine|identify|examine|inspect|evaluate)\b",
+    re.IGNORECASE,
+)
+
+# Measured findings are shown to producers; raw analyzer vocabulary belongs in Agent Activity.
+ANALYZER_JARGON_PATTERN = re.compile(
+    r"\brms\b|crest factor|centroid|onset density|onsets? per second|onsets?/s"
+    r"|template correlation|\b[a-z]+_[a-z0-9_]+\b",
+    re.IGNORECASE,
+)
+
+# Measured findings state facts; advice and speculation belong in the reply or next actions.
+SPECULATION_PATTERN = re.compile(
+    r"\b(suggest\w*|room to|should|could|might|consider|try)\b",
+    re.IGNORECASE,
+)
+
+# A next action may be completed only when the user's own message in this turn
+# confirms completion, e.g. "I did that", "that's done", "mark N2 done".
+_COMPLETION_OBJECT = r"(?:it|that|this|those|them|these|(?:the|that|this)\s+(?:step|one|action)|n\d+)"
+COMPLETION_STATEMENT_PATTERN = re.compile(
+    r"\b(?:i|we)(?:\s+have|'ve|\s+just|\s+already)*\s+"
+    r"(?:did|done|finished|completed|wrapped\s+up)\s+" + _COMPLETION_OBJECT + r"\b"
+    r"|\b(?:that|it|this|n\d+)(?:'s|\s+is|\s+was|\s+has\s+been)\s+(?:already\s+|now\s+)?"
+    r"(?:done|finished|complete|completed)\b",
+    re.IGNORECASE,
+)
+COMPLETION_COMMAND_PATTERN = re.compile(
+    r"\bmark\s+(?:" + _COMPLETION_OBJECT + r"(?:\s*(?:,|and)\s*n\d+)*\s+)?(?:as\s+)?"
+    r"(?:done|complete|completed|finished)\b"
+    r"|\bcheck\s+" + _COMPLETION_OBJECT + r"\s+off\b",
+    re.IGNORECASE,
+)
+# Any negation disqualifies the message ("I haven't done that", "I did not finish it").
+COMPLETION_NEGATION_PATTERN = re.compile(r"\b(?:not|never|no|yet)\b|n't\b", re.IGNORECASE)
+NEXT_ACTION_ID_PATTERN = re.compile(r"\bn\d+\b", re.IGNORECASE)
+
+# After a goal-only update, these fields may not be added later in the same user turn.
+GOAL_TURN_LOCKED_FIELDS = ("add_findings", "add_decisions", "add_next_actions", "complete_next_actions")
+PLAN_UPDATE_FIELDS = ("goal", "add_findings", "add_decisions", "add_next_actions", "complete_next_actions", "remove_items")
 
 
 def new_project_state() -> dict:
@@ -304,6 +348,22 @@ def _validate_finding(item, index, state, current_audio_file_id):
             "Use 'measurement' for analyze_audio_track results and 'user' for facts the user stated.",
         )
 
+    jargon = ANALYZER_JARGON_PATTERN.search(text) if source == "measurement" else None
+    if jargon:
+        return None, _error(
+            f"{label}.text uses raw analyzer terminology ('{jargon.group(0)}').",
+            "Rewrite the finding in plain producer language with at most one numeric "
+            "comparison, e.g. 'The section after 1:26 sits about 6 dB higher in average "
+            "signal level than the section before it.'",
+        )
+
+    speculation = SPECULATION_PATTERN.search(text) if source == "measurement" else None
+    if speculation:
+        return None, _error(
+            f"{label}.text includes advice or speculation ('{speculation.group(0)}').",
+            "Keep measurement findings factual; put suggestions in the reply or next actions.",
+        )
+
     raw_start = item.get("start_seconds")
     raw_end = item.get("end_seconds")
     has_range = raw_start is not None or raw_end is not None
@@ -427,6 +487,12 @@ def update_project_state(
         new_goal = _clean_text(goal, MAX_GOAL_CHARS)
         if not new_goal:
             return _error("goal must be a non-empty string.", "State the user's goal in one sentence.")
+        if TASK_GOAL_PATTERN.match(new_goal):
+            return _error(
+                "goal describes an analysis task, not a creative production goal.",
+                "Leave the goal unchanged unless the user states a durable creative "
+                "objective, e.g. 'Make the second half hit harder.'",
+            )
 
     if add_findings is not None and not isinstance(add_findings, list):
         return _error("add_findings must be a list of objects.", "Pass add_findings as a JSON array.")
@@ -455,7 +521,15 @@ def update_project_state(
     if unknown:
         return _error(f"Unknown item IDs in remove_items: {unknown}.", "Use IDs listed in the project state.")
 
-    unknown = [i for i in complete_ids if i not in action_ids or i in remove_ids]
+    conflicting = [i for i in complete_ids if i in remove_ids]
+    if conflicting:
+        return _error(
+            f"{conflicting} appear in both complete_next_actions and remove_items.",
+            "Complete a next action only if the user did it; remove it if it is "
+            "obsolete or superseded. Choose one.",
+        )
+
+    unknown = [i for i in complete_ids if i not in action_ids]
     if unknown:
         return _error(
             f"Unknown next action IDs in complete_next_actions: {unknown}.",
@@ -570,6 +644,91 @@ def update_project_state(
     return json.dumps(result)
 
 
+def new_turn_context(user_message: str) -> dict:
+    """Per-user-turn bookkeeping for guarded_update_project_state; discarded after the turn."""
+    return {"user_message": user_message or "", "plan_updated": False, "goal_only": False}
+
+
+def _user_confirmed_ids(user_message: str) -> tuple[bool, set[str]]:
+    """Whether the user's message confirms completion, and any N# IDs it names."""
+    message = user_message.replace("\u2019", "'")
+    if COMPLETION_NEGATION_PATTERN.search(message):
+        return False, set()
+    confirmed = bool(COMPLETION_COMMAND_PATTERN.search(message)) or (
+        "?" not in message and bool(COMPLETION_STATEMENT_PATTERN.search(message))
+    )
+    return confirmed, {i.upper() for i in NEXT_ACTION_ID_PATTERN.findall(message)}
+
+
+def guarded_update_project_state(
+    state: dict,
+    current_audio_file_id: str | None,
+    turn: dict,
+    /,
+    **args,
+) -> str:
+    """Apply update_project_state after dropping changes this user turn does not authorize.
+
+    - complete_next_actions is kept only for actions the user's message confirms
+      as done (and, if the message names N# IDs, only those IDs).
+    - If the turn's first successful update was goal-only, later calls in the same
+      turn may not add findings, decisions, or next actions, or complete actions.
+    Ignored parts are reported in the result; the rest of the call still applies.
+    """
+    ignored = []
+
+    requested = args.get("complete_next_actions")
+    if isinstance(requested, list) and requested and not turn["goal_only"]:
+        confirmed, named_ids = _user_confirmed_ids(turn["user_message"])
+        allowed = [
+            i for i in requested
+            if confirmed and (not named_ids or (isinstance(i, str) and i.strip().upper() in named_ids))
+        ]
+        rejected = [i for i in requested if i not in allowed]
+        if rejected:
+            ignored.append({
+                "field": "complete_next_actions",
+                "ids": rejected,
+                "reason": "The user's message did not confirm that these next actions were completed.",
+            })
+        if allowed:
+            args["complete_next_actions"] = allowed
+        else:
+            args.pop("complete_next_actions")
+
+    if turn["goal_only"]:
+        for field in GOAL_TURN_LOCKED_FIELDS:
+            if args.get(field):
+                ignored.append({
+                    "field": field,
+                    "reason": "This turn set the goal only; other plan changes wait until the user asks for them.",
+                })
+                args.pop(field)
+
+    nothing_left = (
+        set(args) <= set(PLAN_UPDATE_FIELDS)
+        and args.get("goal") is None
+        and not any(args.get(field) for field in PLAN_UPDATE_FIELDS if field != "goal")
+    )
+    if ignored and nothing_left:
+        result = {"status": "unchanged", "changes": [], "project_state": public_project_state(state)}
+    else:
+        result = json.loads(update_project_state(state, current_audio_file_id, **args))
+        if "error" not in result and not turn["plan_updated"]:
+            turn["plan_updated"] = True
+            turn["goal_only"] = args.get("goal") is not None and not any(
+                args.get(field) for field in PLAN_UPDATE_FIELDS if field != "goal"
+            )
+
+    if ignored:
+        result["ignored"] = ignored
+        result["ignored_action"] = (
+            "These changes were not saved. Do not retry them this turn; offer them to "
+            "the user as suggestions instead."
+        )
+    return json.dumps(result)
+
+
 UPDATE_PROJECT_STATE_TOOL = {
     "type": "function",
     "function": {
@@ -579,22 +738,35 @@ UPDATE_PROJECT_STATE_TOOL = {
             "Studio Copilot workspace and given back to you as project state on later "
             "turns. This is durable project memory ('remember this'), unlike "
             "focus_audio_region, which only directs visual attention right now. "
-            "Call it only when something durable changes: the user states or changes "
-            "their production goal; an analysis produced a genuinely useful finding; "
-            "the user made an actual decision; concrete next actions were agreed; or an "
-            "existing next action was completed or became obsolete. Do NOT call it on "
-            "every response and do not save every observation. "
-            "Goal: the user's own stated intent, never a guess. "
-            "Findings: only facts supported by analyze_audio_track measurements "
-            "(source 'measurement') or explicit user statements (source 'user'); no "
-            "speculation, no invented numbers, no section labels the user did not give. "
-            "Include exact analyzed start_seconds/end_seconds when the finding is about a "
-            "specific region. "
-            "Decisions: only choices the user actually made; your suggestions are not "
-            "decisions. "
-            "Next actions: 2-5 concrete, actionable production steps; they are "
-            "suggestions until the user does them. "
-            "Returns the full resulting project state."
+            "Keep the plan curated. Call it only when something durable changes: the "
+            "user states or changes a creative goal; an analysis produced a genuinely "
+            "useful, reusable finding; the user made or accepted a decision; concrete "
+            "next actions were agreed; or a next action was completed or became "
+            "obsolete. Do NOT call it on every response or after every analysis. "
+            "Goal: a durable creative objective the user stated (e.g. 'Make the second "
+            "half hit harder'), never a task such as 'Analyze the track' and never a "
+            "guess. When the user states a new goal, send only goal unless the same "
+            "message independently establishes a decision, finding, or next action. "
+            "Findings: a few important, factual observations supported by verified "
+            "analyze_audio_track measurements, preferably producer_summary statements "
+            "(source 'measurement'), or explicit user statements (source 'user'), "
+            "written in plain producer language with at most one numeric comparison. Do "
+            "not copy raw analyzer values, list metrics, use terms like RMS, crest "
+            "factor, centroid, or onset density, add suggestions or speculation, claim "
+            "causes, use section labels the user did not give, or save routine facts "
+            "such as duration, tempo, or key unless they matter to the goal. "
+            "Include the exact analyzed start_seconds/end_seconds when the finding is "
+            "about a specific region. "
+            "Decisions: only choices the user made or explicitly accepted; your "
+            "suggestions are not decisions, and neither is the goal or a constraint "
+            "inside it. "
+            "Next actions: concrete steps, added only when the user asks what to do "
+            "next, a plan is agreed, or a clearly useful follow-up emerges from an "
+            "analyzed finding; never just because a goal was set, and never stating "
+            "facts that were not measured. "
+            "Pass these fields directly as top-level arguments; never wrap them in "
+            "another object or key. All fields are optional; send only the ones that "
+            "change. Returns the full resulting project state."
         ),
         "parameters": {
             "type": "object",
@@ -602,8 +774,10 @@ UPDATE_PROJECT_STATE_TOOL = {
                 "goal": {
                     "type": "string",
                     "description": (
-                        "Set or replace the production goal, in one sentence, only when "
-                        "the user has stated or changed it."
+                        "Set or replace the creative production goal, in one sentence, "
+                        "only when the user has stated or changed it. Not a task like "
+                        "'Analyze the track'. Setting a goal does not require adding "
+                        "findings, decisions, or next actions."
                     ),
                 },
                 "add_findings": {
@@ -615,9 +789,10 @@ UPDATE_PROJECT_STATE_TOOL = {
                             "text": {
                                 "type": "string",
                                 "description": (
-                                    "One concise sentence, citing measured values when "
-                                    "relevant, e.g. 'Median RMS drops to -30 dBFS, about "
-                                    "13 dB below the track median.'"
+                                    "One concise, factual producer-language sentence, e.g. "
+                                    "'The section after 1:26 sits about 6 dB higher in "
+                                    "average signal level than the section before it.' No "
+                                    "suggestions or speculation."
                                 ),
                             },
                             "source": {
@@ -649,17 +824,31 @@ UPDATE_PROJECT_STATE_TOOL = {
                 "add_decisions": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Choices the user actually made, one short sentence each.",
+                    "description": (
+                        "Concrete choices the user made or explicitly accepted, one "
+                        "short sentence each, e.g. 'Use a 4-bar build into 1:24.' Never "
+                        "your own suggestions, never a restatement of the goal or of a "
+                        "constraint inside it, and never a wish ('User wants...')."
+                    ),
                 },
                 "add_next_actions": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Concrete production steps to add to Next Moves.",
+                    "description": (
+                        "Concrete production steps to add to Next Moves. Must not state "
+                        "unmeasured facts; phrase investigations as investigations, e.g. "
+                        "'Compare 1:00-1:15 with 1:15-1:30 to see how the second half changes.'"
+                    ),
                 },
                 "complete_next_actions": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "IDs of next actions (e.g. 'N2') the user has completed.",
+                    "description": (
+                        "IDs of next actions (e.g. 'N2') that the user explicitly says they "
+                        "completed, or that you performed with a tool call in this turn. "
+                        "Choosing a related decision does not complete an action. Use "
+                        "remove_items instead for actions a decision superseded."
+                    ),
                 },
                 "remove_items": {
                     "type": "array",
