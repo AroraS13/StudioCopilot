@@ -77,4 +77,4 @@ Tempo and key are algorithmic estimates, so they can be wrong on rhythmically or
 
 Sessions and uploaded audio currently live in memory and temporary storage, so restarting the server clears them.
 
-Studio Copilot will be deployed on Google Cloud Run.
+Studio Copilot is deployed on GCP at https://studiocopilot-git-929339198698.europe-west1.run.app/
